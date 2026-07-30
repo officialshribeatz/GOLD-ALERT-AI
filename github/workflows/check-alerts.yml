@@ -1,0 +1,27 @@
+name: Check Gold Price Alerts
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # दर 5 मिनिटांनी (GitHub Actions cron चा minimum interval)
+  workflow_dispatch:         # manually पण run करता येईल "Actions" tab मधून
+
+jobs:
+  check-alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./scripts
+        run: npm install
+
+      - name: Run alert check
+        working-directory: ./scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+        run: node check-alerts.js
