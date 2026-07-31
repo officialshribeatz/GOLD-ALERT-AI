@@ -245,6 +245,9 @@ if(liqToggle){
     }
     localStorage.setItem(LIQ_STORAGE_KEY, liqToggle.checked);
     updateLiqInfo();
+    if(fcmDb && deviceId){
+      fcmDb.ref('devices/' + deviceId + '/liqEnabled').set(liqToggle.checked).catch(()=>{});
+    }
   });
 }
 
@@ -472,7 +475,12 @@ async function initPushNotifications(){
     const swReg = await navigator.serviceWorker.register('firebase-messaging-sw.js');
     const token = await fcmMessaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
     if(token){
-      await fcmDb.ref('devices/' + deviceId).set({ token, updatedAt: Date.now() });
+      await fcmDb.ref('devices/' + deviceId).set({
+        token,
+        updatedAt: Date.now(),
+        swingEnabled: true,
+        liqEnabled: isLiqEnabled()
+      });
       syncAlertsToFirebase();
     }
   }catch(e){
