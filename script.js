@@ -39,6 +39,18 @@ navItems.forEach((item, idx)=>{
 });
 
 /* ---------- SHARED: multi-proxy fetch (tries several free CORS proxies in order) ---------- */
+// Wraps fetch with a hard timeout so one slow/dead proxy can't hang the whole
+// refresh — after `ms` milliseconds it aborts and we move to the next proxy.
+async function fetchWithTimeout(url, ms){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), ms);
+  try{
+    return await fetch(url, {cache:'no-store', signal: controller.signal});
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchWithFallback(targetUrl){
   const proxies = [
     (u)=> `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
@@ -48,7 +60,7 @@ async function fetchWithFallback(targetUrl){
   let lastErr;
   for(let i=0;i<proxies.length;i++){
     try{
-      const res = await fetch(proxies[i](targetUrl), {cache:'no-store'});
+      const res = await fetchWithTimeout(proxies[i](targetUrl), 6000);
       if(!res.ok) throw new Error('status '+res.status);
       const text = await res.text();
       // allorigins /get wraps response in {"contents": "..."}
@@ -440,7 +452,7 @@ async function fetchNews(){
   const feedResults = await Promise.allSettled(NEWS_FEEDS.map(async (feed) => {
     try{
       const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}`;
-      const res = await fetch(apiUrl, {cache:'no-store'});
+      const res = await fetchWithTimeout(apiUrl, 6000);
       const json = await res.json();
       if(json.status !== 'ok') throw new Error('rss2json status: '+json.status);
       return (json.items || []).slice(0, 8).map(item => ({
