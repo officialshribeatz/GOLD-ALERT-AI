@@ -17,3 +17,21 @@ messaging.onBackgroundMessage((payload) => {
   };
   self.registration.showNotification(title, options);
 });
+
+// Tapping a background push notification should open/focus the app
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientsArr => {
+      const appUrl = self.registration.scope;
+      for (const client of clientsArr) {
+        if (client.url.startsWith(appUrl) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(appUrl);
+      }
+    })
+  );
+});
