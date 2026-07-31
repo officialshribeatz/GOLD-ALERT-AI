@@ -100,8 +100,63 @@ async function main(){
         if(swings.length > MAX_SWINGS) swings = swings.slice(0, MAX_SWINGS);
         await db.ref('swingLevels').set(swings);
         console.log('New server-side swing detected:', type, point.price);
+
+        // Notify every device that has swing alerts enabled
+        const tokens = Object.values(devices)
+          .filter(d => d.swingEnabled && d.token)
+          .map(d => d.token);
+        if(tokens.length){
+          const body = `Naya swing ${type === 'high' ? 'high' : 'low'} tayar zala: ${point.price.toFixed(2)}`;
+          try{
+            await admin.messaging().sendEachForMulticast({
+              tokens,
+              notification: { title: '📍 Gold Alert AI — Swing Level', body }
+            });
+          }catch(e){ console.warn('Swing push failed:', e.message); }
+        }
       }
     }
+  }
+
+  // ---- 3. Server-side Liquidity Zone (day high/low proximity) detection ----
+  const LIQ_PROXIMITY = 2.5;
+  try{
+    const glRes = await fetch('https://data-asg.goldprice.org/dbXRates/USD', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    });
+    const glData = await glRes.json();
+    const item = glData.items[0];
+    const dayHigh = item.xauHigh || item.xauPrice;
+    const dayLow = item.xauLow || item.xauPrice;
+
+    const nearHigh = Math.abs(dayHigh - price) <= LIQ_PROXIMITY;
+    const nearLow = Math.abs(price - dayLow) <= LIQ_PROXIMITY;
+
+    if(nearHigh || nearLow){
+      const stateSnap = await db.ref('liqNotifyState').once('value');
+      const state = stateSnap.val() || {};
+      const zoneKey = nearHigh ? `high_${dayHigh.toFixed(0)}` : `low_${dayLow.toFixed(0)}`;
+
+      if(state.lastZoneKey !== zoneKey){
+        const tokens = Object.values(devices)
+          .filter(d => d.liqEnabled && d.token)
+          .map(d => d.token);
+        if(tokens.length){
+          const body = nearHigh
+            ? `Price (${price.toFixed(2)}) day high (${dayHigh.toFixed(2)}) jawal ala — reversal/sweep sambhav.`
+            : `Price (${price.toFixed(2)}) day low (${dayLow.toFixed(2)}) jawal ala — reversal/sweep sambhav.`;
+          try{
+            await admin.messaging().sendEachForMulticast({
+              tokens,
+              notification: { title: '🎯 Gold Alert AI — Liquidity Zone', body }
+            });
+          }catch(e){ console.warn('Liquidity push failed:', e.message); }
+        }
+        await db.ref('liqNotifyState').set({ lastZoneKey: zoneKey, updatedAt: Date.now() });
+      }
+    }
+  }catch(e){
+    console.warn('Liquidity zone check failed (non-fatal):', e.message);
   }
 }
 
