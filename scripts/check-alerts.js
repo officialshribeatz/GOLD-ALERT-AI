@@ -30,6 +30,7 @@ async function main(){
   const price = await getGoldPrice();
   console.log('Current gold price:', price);
 
+  // ---- 1. Price alerts (existing) ----
   const [devicesSnap, alertsSnap] = await Promise.all([
     db.ref('devices').once('value'),
     db.ref('alerts').once('value')
@@ -62,6 +63,43 @@ async function main(){
         }catch(e){
           console.warn('Push send failed for', deviceId, e.message);
         }
+      }
+    }
+  }
+
+  // ---- 2. Server-side swing (H4/Daily-style) detection ----
+  // Runs every 5 min regardless of any phone being open — builds real swing
+  // history in shared Firebase data so the app just displays it.
+  const N = 4;               // neighbors each side to confirm a swing point
+  const MIN_AMPLITUDE = 8;   // $ — must beat every neighbor by this much
+  const DEDUPE_GAP = 15;     // $ — treat close levels as the same zone
+  const MAX_HISTORY = 500;   // cap stored price ticks (~ a few days at 5 min/tick)
+  const MAX_SWINGS = 20;
+
+  const histSnap = await db.ref('priceHistory').once('value');
+  let history = histSnap.val() || [];
+  history.push({ price, t: Date.now() });
+  if(history.length > MAX_HISTORY) history = history.slice(history.length - MAX_HISTORY);
+  await db.ref('priceHistory').set(history);
+
+  const idx = history.length - 1 - N;
+  if(idx >= N){
+    const point = history[idx];
+    const neighbors = [...history.slice(idx - N, idx), ...history.slice(idx + 1, idx + 1 + N)];
+    const isHigh = neighbors.every(p => point.price > p.price + MIN_AMPLITUDE);
+    const isLow = neighbors.every(p => point.price < p.price - MIN_AMPLITUDE);
+
+    if(isHigh || isLow){
+      const type = isHigh ? 'high' : 'low';
+      const swingSnap = await db.ref('swingLevels').once('value');
+      let swings = swingSnap.val() || [];
+      const duplicate = swings.find(s => s.type === type && Math.abs(s.value - point.price) <= DEDUPE_GAP);
+      if(!duplicate){
+        swings.push({ type, value: point.price, time: point.t });
+        swings.sort((a,b) => b.time - a.time);
+        if(swings.length > MAX_SWINGS) swings = swings.slice(0, MAX_SWINGS);
+        await db.ref('swingLevels').set(swings);
+        console.log('New server-side swing detected:', type, point.price);
       }
     }
   }
