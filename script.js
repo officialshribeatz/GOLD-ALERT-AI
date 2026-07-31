@@ -583,8 +583,8 @@ async function fetchNews(){
     <div class="news-card" style="cursor:pointer; ${n.goldBullish ? 'border:2px solid #3ecf8e; background:rgba(62,207,142,0.10); box-shadow:0 0 12px rgba(62,207,142,0.3);' : n.goldBearish ? 'border:2px solid #ff8c42; background:rgba(255,140,66,0.10); box-shadow:0 0 12px rgba(255,140,66,0.3);' : n.important ? 'border:2px solid #ff4d4d; background:rgba(255,77,77,0.08); box-shadow:0 0 12px rgba(255,77,77,0.25);' : ''}">
       ${n.goldBullish ? `<div style="display:inline-block; background:#3ecf8e; color:#062b1a; font-weight:800; font-size:11px; padding:3px 8px; border-radius:6px; margin-bottom:6px; letter-spacing:.3px;">📈 GOLD बुलिश — फायद्याची बातमी</div>` : n.goldBearish ? `<div style="display:inline-block; background:#ff8c42; color:#2b1300; font-weight:800; font-size:11px; padding:3px 8px; border-radius:6px; margin-bottom:6px; letter-spacing:.3px;">🔻 GOLD बेअरिश — सावध रहा</div>` : n.important ? `<div style="display:inline-block; background:#ff4d4d; color:#1a0000; font-weight:800; font-size:11px; padding:3px 8px; border-radius:6px; margin-bottom:6px; letter-spacing:.3px;">🚨 HIGH IMPACT — लगेच लक्ष द्या</div>` : ''}
       <div class="news-source">${n.source}</div>
-      <div class="news-title">${escapeHtml(n.title)}</div>
-      <div class="news-title-mr" id="mr-${i}" style="color:var(--gold-soft); font-size:12.5px; margin-top:6px; line-height:1.5;">Marathi मध्ये भाषांतर होत आहे...</div>
+      <div class="news-title-mr" id="mr-${i}" style="color:var(--text); font-size:14.5px; font-weight:600; line-height:1.5;">मराठी भाषांतर होत आहे...</div>
+      <div class="news-title" style="color:var(--sub); font-size:11.5px; font-weight:400; margin-top:6px; line-height:1.4;">${escapeHtml(n.title)}</div>
       <div class="news-time">${timeAgo(n.pubDate)}</div>
       <div style="margin-top:8px; font-size:11px; color:var(--gold-soft); font-weight:600;" class="news-toggle-hint" id="hint-${i}">🔽 महत्त्वाचे मुद्दे बघण्यासाठी टॅप कर</div>
       <div class="news-points" id="pts-${i}"></div>
@@ -631,12 +631,14 @@ async function translateToMarathi(text, idx){
     const data = await res.json();
     const translated = data?.responseData?.translatedText;
     if(translated && el){
-      el.textContent = '🇮🇳 ' + translated;
+      el.textContent = translated;
     } else if(el){
-      el.style.display = 'none';
+      // translation failed — this line is now the primary headline, so
+      // fall back to the original English text instead of hiding it
+      el.textContent = text;
     }
   }catch(e){
-    if(el) el.style.display = 'none';
+    if(el) el.textContent = text;
   }
 }
 
@@ -777,9 +779,26 @@ function toggleKeyPoints(i, description){
   if(points.length === 0){
     box.innerHTML = `<div class="pts-empty">या बातमीसाठी अजून जास्त तपशील उपलब्ध नाही.</div>`;
   } else {
-    box.innerHTML = `<ul>${points.map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`;
+    box.innerHTML = `<ul>${points.map((p, j) => `<li id="pt-${i}-${j}">${escapeHtml(p)} <span style="color:var(--sub); font-size:10.5px;">(मराठी भाषांतर होत आहे...)</span></li>`).join('')}</ul>`;
+    // translate each point, staggered slightly to avoid hitting the free
+    // translate API's rate limit if the card has several points
+    points.forEach((p, j) => setTimeout(()=> translatePoint(p, i, j), j * 300));
   }
   box.classList.add('open');
   openPointsIndex.add(i);
   if(hint) hint.textContent = '🔼 बंद करण्यासाठी परत टॅप कर';
+}
+
+async function translatePoint(text, i, j){
+  const el = document.getElementById(`pt-${i}-${j}`);
+  if(!el) return;
+  try{
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|mr`;
+    const res = await fetch(url, {cache:'no-store'});
+    const data = await res.json();
+    const translated = data?.responseData?.translatedText;
+    el.textContent = translated || text;
+  }catch(e){
+    el.textContent = text;
+  }
 }
