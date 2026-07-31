@@ -441,12 +441,80 @@ const NEWS_FEEDS = [
   { name:'FXStreet', url:'https://www.fxstreet.com/rss/news' }
 ];
 
+// Keywords that mean specifically BAD news for gold's own price (bearish for gold).
+const GOLD_BEARISH_KEYWORDS = [
+  'gold falls', 'gold drops', 'gold slides', 'gold slips', 'gold plunges',
+  'gold tumbles', 'gold sinks', 'gold retreats', 'gold declines', 'gold slumps',
+  'gold pressured', 'gold under pressure', 'gold weakens', 'gold loses',
+  'gold hits low', 'gold near low', 'gold multi-week low', 'gold multi-month low',
+  'dollar strengthens', 'dollar rallies', 'dollar surges', 'stronger dollar',
+  'yields rise', 'yields surge', 'yields jump', 'treasury yields climb',
+  'risk-on', 'risk on rally', 'gold outlook bearish', 'bearish on gold',
+  'gold price forecast cut', 'gold price forecast lowered', 'profit-taking in gold'
+];
+
+// Keywords that mean specifically GOOD news for gold's own price (bullish for gold) —
+// separate from generic high-impact/volatility keywords below, so these get their
+// own distinct green badge instead of the red high-impact one.
+const GOLD_BULLISH_KEYWORDS = [
+  'gold hits record', 'gold record high', 'gold surges', 'gold soars',
+  'gold rallies', 'gold climbs', 'gold jumps', 'gold gains', 'gold rises',
+  'gold at all-time high', 'gold all-time high', 'gold near record',
+  'safe-haven demand', 'safe haven demand', 'flight to safety', 'flight to safe-haven',
+  'central bank buying', 'central banks buy', 'central bank gold purchases',
+  'gold outlook bullish', 'bullish on gold', 'gold price forecast raised',
+  'gold breaks', 'gold hits new high', 'gold hits fresh high'
+];
+
+// Keywords that usually mean "this news can move gold price hard / high volatility"
+// but aren't necessarily good news specifically for gold (could be either direction).
+const HIGH_IMPACT_KEYWORDS = [
+  'fed', 'fomc', 'powell', 'rate cut', 'rate hike', 'interest rate',
+  'cpi', 'nfp', 'non-farm', 'inflation', 'recession', 'gdp',
+  'war', 'attack', 'strike', 'invasion', 'missile', 'nuclear', 'conflict',
+  'intervention', 'crisis', 'emergency', 'default', 'shutdown',
+  'crash', 'plunge', 'plunges', 'surge', 'surges', 'soar', 'soars',
+  'record high', 'record low', 'all-time high', 'all-time low',
+  'safe-haven', 'safe haven', 'tariff', 'sanctions', 'geopolitical',
+  'gold hits', 'gold jumps', 'breaking'
+];
+
+function isGoldBullishNews(title){
+  const t = title.toLowerCase();
+  return GOLD_BULLISH_KEYWORDS.some(k => t.includes(k));
+}
+
+function isGoldBearishNews(title){
+  const t = title.toLowerCase();
+  return GOLD_BEARISH_KEYWORDS.some(k => t.includes(k));
+}
+
+function isHighImpactNews(title){
+  const t = title.toLowerCase();
+  return HIGH_IMPACT_KEYWORDS.some(k => t.includes(k));
+}
+
+// Tracks which high-impact headlines we've already notified about, so the
+// same story doesn't push a notification every 5-min refresh cycle.
+const NOTIFIED_IMPORTANT_KEY = 'goldAlertAI_notifiedImportantNews';
+function getNotifiedImportantSet(){
+  try{ return new Set(JSON.parse(localStorage.getItem(NOTIFIED_IMPORTANT_KEY)) || []); }
+  catch(e){ return new Set(); }
+}
+function saveNotifiedImportantSet(set){
+  // keep only the most recent 200 to avoid localStorage growing forever
+  const arr = Array.from(set).slice(-200);
+  localStorage.setItem(NOTIFIED_IMPORTANT_KEY, JSON.stringify(arr));
+}
+
 // Tracks whether we've EVER successfully shown news at least once — used so
 // a failed refresh doesn't wipe out news that's already on screen.
 let hasLoadedNewsOnce = false;
 
 async function fetchNews(){
   const listEl = document.getElementById('newsList');
+  // extra bottom padding so the last card isn't hidden half-behind the bottom nav bar
+  listEl.style.paddingBottom = '90px';
   let allItems = [];
 
   const feedResults = await Promise.allSettled(NEWS_FEEDS.map(async (feed) => {
@@ -482,8 +550,23 @@ async function fetchNews(){
   // filter roughly for gold-relevant keywords when feed isn't gold-specific
   allItems = allItems.filter(n => n.title && n.title.length > 5);
 
-  // sort newest first
-  allItems.sort((a,b)=> new Date(b.pubDate) - new Date(a.pubDate));
+  // tag high-impact / gold-bullish / gold-bearish items — the gold-specific
+  // categories are checked first since they're more specific (a gold-bullish
+  // or bearish headline often also matches generic high-impact words like
+  // "record high"/"plunge", so we don't want double-badging)
+  allItems.forEach(n => {
+    n.goldBullish = isGoldBullishNews(n.title);
+    n.goldBearish = !n.goldBullish && isGoldBearishNews(n.title);
+    n.important = !n.goldBullish && !n.goldBearish && isHighImpactNews(n.title);
+  });
+
+  // sort: gold-bullish first, then gold-bearish, then high-impact, then newest first within each group
+  allItems.sort((a,b)=>{
+    const rank = (n)=> n.goldBullish ? 0 : (n.goldBearish ? 1 : (n.important ? 2 : 3));
+    const ra = rank(a), rb = rank(b);
+    if(ra !== rb) return ra - rb;
+    return new Date(b.pubDate) - new Date(a.pubDate);
+  });
 
   if(allItems.length === 0){
     // Only show the empty/error state the very first time (nothing on screen yet).
@@ -501,7 +584,8 @@ async function fetchNews(){
   const topItems = allItems.slice(0, 15);
 
   listEl.innerHTML = topItems.map((n, i) => `
-    <div class="news-card">
+    <div class="news-card" style="${n.goldBullish ? 'border:2px solid #3ecf8e; background:rgba(62,207,142,0.10); box-shadow:0 0 12px rgba(62,207,142,0.3);' : n.goldBearish ? 'border:2px solid #ff8c42; background:rgba(255,140,66,0.10); box-shadow:0 0 12px rgba(255,140,66,0.3);' : n.important ? 'border:2px solid #ff4d4d; background:rgba(255,77,77,0.08); box-shadow:0 0 12px rgba(255,77,77,0.25);' : ''}">
+      ${n.goldBullish ? `<div style="display:inline-block; background:#3ecf8e; color:#062b1a; font-weight:800; font-size:11px; padding:3px 8px; border-radius:6px; margin-bottom:6px; letter-spacing:.3px;">📈 GOLD बुलिश — फायद्याची बातमी</div>` : n.goldBearish ? `<div style="display:inline-block; background:#ff8c42; color:#2b1300; font-weight:800; font-size:11px; padding:3px 8px; border-radius:6px; margin-bottom:6px; letter-spacing:.3px;">🔻 GOLD बेअरिश — सावध रहा</div>` : n.important ? `<div style="display:inline-block; background:#ff4d4d; color:#1a0000; font-weight:800; font-size:11px; padding:3px 8px; border-radius:6px; margin-bottom:6px; letter-spacing:.3px;">🚨 HIGH IMPACT — लगेच लक्ष द्या</div>` : ''}
       <div class="news-source">${n.source}</div>
       <div class="news-title">${escapeHtml(n.title)}</div>
       <div class="news-title-mr" id="mr-${i}" style="color:var(--gold-soft); font-size:12.5px; margin-top:6px; line-height:1.5;">Marathi मध्ये भाषांतर होत आहे...</div>
@@ -512,6 +596,24 @@ async function fetchNews(){
   // Translate each headline to Marathi in the background (free MyMemory API, no key needed)
   // staggered slightly so we don't fire 15 requests at once and trip rate limits
   topItems.forEach((n, i) => setTimeout(()=> translateToMarathi(n.title, i), i * 400));
+
+  // Push a notification for NEW important headlines only (so it works even
+  // if the phone/app is closed at the moment it's checked via the 5-min interval).
+  const notified = getNotifiedImportantSet();
+  const newsworthy = allItems.filter(n => (n.important || n.goldBullish || n.goldBearish) && !notified.has(n.title));
+  if(newsworthy.length && Notification.permission === 'granted'){
+    newsworthy.forEach(n=>{
+      const title = n.goldBullish ? '📈 Gold Alert AI — GOLD बुलिश न्यूज'
+        : n.goldBearish ? '🔻 Gold Alert AI — GOLD बेअरिश न्यूज'
+        : '🚨 Gold Alert AI — High Impact News';
+      safeNotify(title, { body: n.title, icon: 'icon-192.png' });
+      notified.add(n.title);
+    });
+    saveNotifiedImportantSet(notified);
+  } else if(newsworthy.length){
+    newsworthy.forEach(n => notified.add(n.title));
+    saveNotifiedImportantSet(notified);
+  }
 }
 
 async function translateToMarathi(text, idx){
