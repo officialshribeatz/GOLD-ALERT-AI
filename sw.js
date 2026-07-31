@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gold-alert-ai-v14';
+const CACHE_NAME = 'gold-alert-ai-v15';
 const ASSETS = [
   './index.html',
   './script.js',
@@ -22,13 +22,30 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network-first for live data (price/news), cache-first for static shell
   const url = event.request.url;
+
+  // Live/dynamic data — never cache, always go straight to network.
   if(url.includes('goldprice.org') || url.includes('allorigins') || url.includes('corsproxy') || url.includes('gold-api.com') || url.includes('rss2json') || url.includes('mymemory') || url.includes('firebase') || url.includes('gstatic') || url.includes('rss')){
-    return; // let it hit network directly, don't cache live data
+    return;
   }
+
+  // App shell (index.html, script.js, manifest.json, etc.) — NETWORK-FIRST.
+  // This is the key fix: previously this was cache-first, which meant once
+  // a version was cached, the app kept serving that same old code forever
+  // no matter how many times new code was committed on GitHub — Force
+  // Update / clearing Chrome's cache was the only way to see changes.
+  // Now every time the app is opened it tries to fetch the LATEST file from
+  // the network first; only if that fails (phone is offline) does it fall
+  // back to whatever was last cached, so the app still works without internet.
   event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request))
+    fetch(event.request, {cache:'no-store'})
+      .then(networkRes => {
+        // keep the cache fresh with whatever we just fetched, for offline fallback
+        const resClone = networkRes.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, resClone));
+        return networkRes;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
 
