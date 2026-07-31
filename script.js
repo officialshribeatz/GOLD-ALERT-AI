@@ -532,8 +532,11 @@ document.getElementById('refreshNewsBtn')?.addEventListener('click', async ()=>{
   btn.textContent = '⏳ Loading...';
   btn.disabled = true;
   await fetchNews();
-  btn.textContent = '🔄 News Refresh कर';
-  btn.disabled = false;
+  btn.textContent = '✅ Refresh झालं!';
+  setTimeout(()=>{
+    btn.textContent = '🔄 News Refresh कर';
+    btn.disabled = false;
+  }, 1500);
 });
 setInterval(fetchNews, 5*60*1000); // refresh every 5 min
 
@@ -590,5 +593,18 @@ document.getElementById('forceUpdateBtn')?.addEventListener('click', async ()=>{
     console.warn('Force update cleanup failed:', e);
   }
   // Hard reload with cache-buster so even the HTML itself is fetched fresh
+  localStorage.setItem('goldAlertAI_justUpdated', '1');
   window.location.href = window.location.pathname + '?v=' + Date.now();
 });
+
+// Show a confirmation banner if we just came back from a Force Update
+if(localStorage.getItem('goldAlertAI_justUpdated') === '1'){
+  localStorage.removeItem('goldAlertAI_justUpdated');
+  window.addEventListener('DOMContentLoaded', ()=>{
+    const banner = document.createElement('div');
+    banner.textContent = '✅ Update झालं! नवीन code load झाला आहे.';
+    banner.style.cssText = 'position:fixed; top:12px; left:16px; right:16px; z-index:999; background:rgba(62,207,142,.95); color:#0a1f14; font-weight:700; font-size:13px; padding:12px 16px; border-radius:10px; text-align:center; box-shadow:0 4px 20px rgba(0,0,0,.3);';
+    document.body.appendChild(banner);
+    setTimeout(()=>{ banner.style.transition='opacity .4s'; banner.style.opacity='0'; setTimeout(()=>banner.remove(), 400); }, 3000);
+  });
+}
