@@ -416,6 +416,14 @@ function logPriceForSwings(price){
 
 renderSwingLevels();
 
+document.getElementById('clearSwingBtn')?.addEventListener('click', ()=>{
+  priceHistory = [];
+  swingLevels = [];
+  localStorage.removeItem(SWING_HISTORY_KEY);
+  localStorage.removeItem(SWING_LEVELS_KEY);
+  renderSwingLevels();
+});
+
 // Also pull server-side swings (computed by GitHub Actions every 5 min, independent
 // of this device being open) and merge them in — this is what makes levels show up
 // even after the app was closed the whole time.
