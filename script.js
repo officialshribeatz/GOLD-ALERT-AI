@@ -527,6 +527,14 @@ function timeAgo(dateStr){
 }
 
 fetchNews();
+document.getElementById('refreshNewsBtn')?.addEventListener('click', async ()=>{
+  const btn = document.getElementById('refreshNewsBtn');
+  btn.textContent = '⏳ Loading...';
+  btn.disabled = true;
+  await fetchNews();
+  btn.textContent = '🔄 News Refresh कर';
+  btn.disabled = false;
+});
 setInterval(fetchNews, 5*60*1000); // refresh every 5 min
 
 /* ---------- ECONOMIC CALENDAR ----------

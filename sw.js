@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gold-alert-ai-v11';
+const CACHE_NAME = 'gold-alert-ai-v12';
 const ASSETS = [
   './index.html',
   './script.js',
