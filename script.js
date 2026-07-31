@@ -429,6 +429,10 @@ const NEWS_FEEDS = [
   { name:'FXStreet', url:'https://www.fxstreet.com/rss/news' }
 ];
 
+// Tracks whether we've EVER successfully shown news at least once — used so
+// a failed refresh doesn't wipe out news that's already on screen.
+let hasLoadedNewsOnce = false;
+
 async function fetchNews(){
   const listEl = document.getElementById('newsList');
   let allItems = [];
@@ -470,11 +474,17 @@ async function fetchNews(){
   allItems.sort((a,b)=> new Date(b.pubDate) - new Date(a.pubDate));
 
   if(allItems.length === 0){
-    listEl.innerHTML = `<div class="empty-state">News सध्या load होत नाहीये.<br>Network / proxy issue असू शकते.</div>`;
-    document.getElementById('newsCount').textContent = '0';
+    // Only show the empty/error state the very first time (nothing on screen yet).
+    // If news is already showing from a previous successful load, leave it alone —
+    // a failed refresh (proxy rate-limited, etc.) shouldn't wipe the screen.
+    if(!hasLoadedNewsOnce){
+      listEl.innerHTML = `<div class="empty-state">News सध्या load होत नाहीये.<br>Network / proxy issue असू शकते.</div>`;
+      document.getElementById('newsCount').textContent = '0';
+    }
     return;
   }
 
+  hasLoadedNewsOnce = true;
   document.getElementById('newsCount').textContent = allItems.length;
   const topItems = allItems.slice(0, 15);
 
@@ -531,12 +541,14 @@ document.getElementById('refreshNewsBtn')?.addEventListener('click', async ()=>{
   const btn = document.getElementById('refreshNewsBtn');
   btn.textContent = '⏳ Loading...';
   btn.disabled = true;
+  const beforeCount = document.getElementById('newsCount').textContent;
   await fetchNews();
-  btn.textContent = '✅ Refresh झालं!';
+  const afterCount = document.getElementById('newsCount').textContent;
+  btn.textContent = (afterCount === '0' && beforeCount !== '0') ? '⚠️ थोड्या वेळाने परत ट्राय कर' : '✅ Refresh झालं!';
   setTimeout(()=>{
     btn.textContent = '🔄 News Refresh कर';
     btn.disabled = false;
-  }, 1500);
+  }, 2000);
 });
 setInterval(fetchNews, 5*60*1000); // refresh every 5 min
 
