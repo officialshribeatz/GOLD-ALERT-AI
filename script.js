@@ -310,9 +310,11 @@ setInterval(fetchDayHighLowForLiq, 30000); // day high/low doesn't need to refre
 ------------------------------------------ */
 const SWING_HISTORY_KEY = 'goldAlertAI_priceHistory';
 const SWING_LEVELS_KEY = 'goldAlertAI_swingLevels';
-const SWING_FRACTAL_N = 3; // neighbors on each side to confirm a swing point
-const SWING_DEDUPE_GAP = 3; // $ gap to treat two levels as "the same" zone
+const SWING_FRACTAL_N = 4; // neighbors on each side to confirm a swing point
+const SWING_DEDUPE_GAP = 15; // $ gap to treat two levels as "the same" zone
+const SWING_MIN_AMPLITUDE = 8; // $ — tuned for swing-trading (H4/Daily-style) levels, not scalping noise
 const SWING_MAX_STORED = 12;
+const SWING_LOG_INTERVAL = 15 * 60 * 1000; // sample once every 15 min — approximates H1/H4-scale structure
 
 function loadPriceHistory(){
   try{ return JSON.parse(localStorage.getItem(SWING_HISTORY_KEY)) || []; }
@@ -340,15 +342,18 @@ function detectNewSwings(){
   const n = SWING_FRACTAL_N;
   if(priceHistory.length < n*2 + 1) return;
 
-  // only check the point that now has enough neighbors on both sides (the most recently confirmable one)
   const idx = priceHistory.length - 1 - n;
   if(idx < n) return;
   const point = priceHistory[idx];
   const left = priceHistory.slice(idx-n, idx);
   const right = priceHistory.slice(idx+1, idx+1+n);
+  const neighbors = [...left, ...right];
 
-  const isHigh = left.every(p => p.price <= point.price) && right.every(p => p.price <= point.price);
-  const isLow = left.every(p => p.price >= point.price) && right.every(p => p.price >= point.price);
+  // Strict comparison (not <=/>=) so a flat/noisy patch can't be both a high AND a low.
+  // Also require the point to be meaningfully higher/lower than its neighbors (real swing,
+  // not just rounding noise) — at least MIN_AMPLITUDE $ away from every neighbor.
+  const isHigh = neighbors.every(p => point.price > p.price + SWING_MIN_AMPLITUDE);
+  const isLow = neighbors.every(p => point.price < p.price - SWING_MIN_AMPLITUDE);
 
   if(isHigh || isLow){
     const type = isHigh ? 'high' : 'low';
@@ -398,12 +403,40 @@ function checkSwingProximity(price){
 }
 
 function logPriceForSwings(price){
-  priceHistory.push({ price, t: Date.now() });
+  const now = Date.now();
+  if(logPriceForSwings._last && now - logPriceForSwings._last < SWING_LOG_INTERVAL) return;
+  logPriceForSwings._last = now;
+  priceHistory.push({ price, t: now });
   priceHistory = savePriceHistory(priceHistory);
   detectNewSwings();
 }
 
 renderSwingLevels();
+
+// Also pull server-side swings (computed by GitHub Actions every 5 min, independent
+// of this device being open) and merge them in — this is what makes levels show up
+// even after the app was closed the whole time.
+async function fetchServerSwings(){
+  if(typeof firebaseConfig === 'undefined' || firebaseConfig.apiKey === 'YOUR_API_KEY') return;
+  try{
+    const res = await fetch(firebaseConfig.databaseURL + '/swingLevels.json');
+    const serverSwings = await res.json();
+    if(Array.isArray(serverSwings) && serverSwings.length){
+      const merged = [...serverSwings];
+      swingLevels.forEach(local=>{
+        const dup = merged.find(s => s.type === local.type && Math.abs(s.value - local.value) <= SWING_DEDUPE_GAP);
+        if(!dup) merged.push(local);
+      });
+      merged.sort((a,b)=> b.time - a.time);
+      swingLevels = merged.slice(0, SWING_MAX_STORED);
+      renderSwingLevels();
+    }
+  }catch(e){
+    console.warn('Server swing fetch failed (non-fatal):', e);
+  }
+}
+fetchServerSwings();
+setInterval(fetchServerSwings, 5 * 60 * 1000); // refresh from server every 5 min
 
 /* ---------- FIREBASE PUSH NOTIFICATIONS (Phase 2) ----------
    Works even when the app/tab is closed or phone is locked, unlike the
