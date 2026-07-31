@@ -204,6 +204,8 @@ function checkAlerts(price){
 }
 
 // Silent background price polling — purely to check alerts, TradingView widget handles the visible display
+let lastKnownPrice = null;
+
 async function pollPriceForAlerts(){
   const needAlertCheck = alerts.some(a => !a.triggered);
   const needLiqCheck = isLiqEnabled();
@@ -212,6 +214,7 @@ async function pollPriceForAlerts(){
     if(!res.ok) return;
     const d = await res.json();
     if(typeof d.price === 'number'){
+      lastKnownPrice = d.price;
       if(needAlertCheck) checkAlerts(d.price);
       if(needLiqCheck) checkLiquidityZones(d.price);
     }
@@ -355,6 +358,7 @@ async function fetchServerSwings(){
   }catch(e){
     console.warn('Server swing fetch failed (non-fatal):', e);
   }
+  updateAIAnalysis();
 }
 fetchServerSwings();
 setInterval(fetchServerSwings, 5 * 60 * 1000); // refresh from server every 5 min
@@ -432,6 +436,10 @@ const NEWS_FEEDS = [
   { name:'Kitco News', url:'https://www.kitco.com/rss/KitcoNews.xml' },
   { name:'FXStreet', url:'https://www.fxstreet.com/rss/news' }
 ];
+
+// Latest fetched/tagged news items — read by the AI analysis badge to count
+// how many recent headlines were tagged gold-bullish vs gold-bearish.
+let lastFetchedNewsItems = [];
 
 // Keywords that mean specifically BAD news for gold's own price (bearish for gold).
 const GOLD_BEARISH_KEYWORDS = [
@@ -576,6 +584,7 @@ async function fetchNews(){
   }
 
   hasLoadedNewsOnce = true;
+  lastFetchedNewsItems = allItems; // used by the AI analysis badge (news sentiment component)
   document.getElementById('newsCount').textContent = allItems.length;
   const topItems = allItems.slice(0, 15);
 
@@ -620,6 +629,8 @@ async function fetchNews(){
     newsworthy.forEach(n => notified.add(n.title));
     saveNotifiedImportantSet(notified);
   }
+
+  updateAIAnalysis();
 }
 
 // MyMemory's free tier has a small daily quota. When it's exceeded, it
@@ -834,5 +845,63 @@ async function translatePoint(text, i, j){
     }
   }catch(e){
     el.textContent = text;
+  }
+}
+
+/* ---------- AI ANALYSIS BADGE (news sentiment + swing structure) ----------
+   This is a simple, transparent heuristic — NOT a guaranteed trading signal.
+   It combines two things we already compute elsewhere in this file:
+     1) News sentiment: how many currently-shown headlines got tagged
+        gold-bullish vs gold-bearish by the keyword lists above.
+     2) Swing structure: whether the most recent swing high/low is higher or
+        lower than the previous same-type swing (classic Higher-High /
+        Higher-Low = bullish structure, Lower-High / Lower-Low = bearish —
+        standard ICT/SMC market-structure reading).
+   Each contributes -1, 0, or +1; the two are added for a score from -2 to
+   +2, which maps to BULLISH / BEARISH / NEUTRAL. The reasoning behind the
+   label is always shown in Marathi under the badge so it's never a black box.
+------------------------------------------ */
+function updateAIAnalysis(){
+  const bullishCount = lastFetchedNewsItems.filter(n => n.goldBullish).length;
+  const bearishCount = lastFetchedNewsItems.filter(n => n.goldBearish).length;
+  const newsSignal = bullishCount > bearishCount ? 1 : (bearishCount > bullishCount ? -1 : 0);
+
+  let swingSignal = 0;
+  let swingNote = 'अजून पुरेसा swing data नाही';
+  if(swingLevels && swingLevels.length >= 2){
+    const latest = swingLevels[0];
+    const prevSame = swingLevels.slice(1).find(s => s.type === latest.type);
+    if(prevSame){
+      if(latest.type === 'high' && latest.value > prevSame.value){ swingSignal = 1; swingNote = 'Higher High — नवीन उच्चांक जुन्यापेक्षा वर'; }
+      else if(latest.type === 'high' && latest.value < prevSame.value){ swingSignal = -1; swingNote = 'Lower High — नवीन उच्चांक जुन्यापेक्षा खाली'; }
+      else if(latest.type === 'low' && latest.value > prevSame.value){ swingSignal = 1; swingNote = 'Higher Low — नवीन नीचांक जुन्यापेक्षा वर'; }
+      else if(latest.type === 'low' && latest.value < prevSame.value){ swingSignal = -1; swingNote = 'Lower Low — नवीन नीचांक जुन्यापेक्षा खाली'; }
+      else { swingNote = 'Swing सपाट — स्पष्ट trend नाही'; }
+    }
+  }
+
+  const score = newsSignal + swingSignal;
+  let label, cls;
+  if(score >= 1){ label = '📈 BULLISH'; cls = 'up'; }
+  else if(score <= -1){ label = '📉 BEARISH'; cls = 'down'; }
+  else { label = '➖ NEUTRAL'; cls = 'neutral'; }
+
+  const detail = `News: ${bullishCount} बुलिश / ${bearishCount} बेअरिश  ·  Swing: ${swingNote}`;
+
+  // Update the compact badge on the Price tab
+  const badge = document.getElementById('aiBadge');
+  const text = document.getElementById('aiText');
+  if(badge){ badge.textContent = label; badge.className = 'ai-badge ' + cls; }
+  if(text){ text.innerHTML = `<b>अंदाजे संकेत</b> (गॅरंटी नाही) — ${detail}`; }
+
+  // Update the bigger version on the Analysis tab
+  const bigBadge = document.getElementById('analysisBadgeBig');
+  const detailText = document.getElementById('analysisDetailText');
+  if(bigBadge){ bigBadge.textContent = label; bigBadge.className = 'ai-badge ' + cls; bigBadge.style.fontSize = '14px'; bigBadge.style.padding = '8px 14px'; }
+  if(detailText){
+    detailText.innerHTML = `
+      <div style="margin-bottom:6px;"><b style="color:var(--text);">News sentiment:</b> ${bullishCount} बुलिश headline, ${bearishCount} बेअरिश headline</div>
+      <div><b style="color:var(--text);">Swing structure:</b> ${swingNote}</div>
+    `;
   }
 }

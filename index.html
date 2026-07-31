@@ -131,6 +131,7 @@
   }
   .up{color:var(--bull); background:rgba(62,207,142,.12);}
   .down{color:var(--bear); background:rgba(255,92,92,.12);}
+  .neutral{color:var(--sub); background:rgba(138,145,156,.12);}
   .price-meta{
     display:flex; gap:18px; margin-top:14px;
     font-size:11px; color:var(--sub);
@@ -363,8 +364,8 @@
       </script>
     </div>
     <div class="ai-strip">
-      <div class="ai-badge up" id="aiBadge">BULLISH</div>
-      <div class="ai-text" id="aiText">AI Analysis लवकरच (Phase 2) &mdash; सध्या फक्त live price दाखवत आहोत.</div>
+      <div class="ai-badge neutral" id="aiBadge">⏳ प्रलंबित</div>
+      <div class="ai-text" id="aiText">Analysis साठी news आणि swing data गोळा होत आहे...</div>
     </div>
   </div>
 
@@ -375,12 +376,22 @@
   </div>
 </section>
 
-<!-- ANALYSIS PANEL (placeholder — Phase 2/3: AI sentiment, key levels, daily outlook) -->
+<!-- ANALYSIS PANEL (news sentiment + swing structure based signal) -->
 <section class="panel" id="panel-analysis">
   <div class="section-title">AI Market Analysis</div>
-  <div class="empty-state" style="padding:50px 20px;">
-    🧠 AI Sentiment, Key Levels आणि Daily Gold Outlook<br><br>
-    लवकरच येत आहे (Phase 2/3) — सध्या हे काम चालू आहे.
+
+  <div class="ticker-board" style="margin:0 0 16px;">
+    <div class="ticker-label"><span>सध्याचा संकेत</span></div>
+    <div style="margin-top:10px; display:flex; align-items:center; gap:10px;">
+      <div class="ai-badge neutral" id="analysisBadgeBig" style="font-size:14px; padding:8px 14px;">⏳ प्रलंबित</div>
+    </div>
+    <div style="margin-top:12px; font-size:12.5px; color:var(--sub); line-height:1.6;" id="analysisDetailText">
+      Analysis साठी news आणि swing data गोळा होत आहे...
+    </div>
+  </div>
+
+  <div class="empty-state" style="padding:16px 4px; text-align:left; font-size:11px;">
+    ⚠️ हा फक्त उपलब्ध news headlines आणि swing structure (Higher High/Lower Low) वरून काढलेला अंदाज आहे — trading signal किंवा guarantee नाही. स्वतःचा अभ्यास करूनच निर्णय घ्या.
   </div>
 </section>
 
@@ -452,6 +463,6 @@
   <div class="nav-item"><div class="nav-icon">⚙</div>Tools</div>
 </nav>
 
-<script src="script.js?v=6"></script>
+<script src="script.js?v=7"></script>
 </body>
 </html>
