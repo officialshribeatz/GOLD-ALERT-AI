@@ -3,45 +3,31 @@
    Tabs + Live Gold Price + News + Economic Calendar
    ======================================================== */
 
-/* ---------- TAB SWITCHING ---------- */
+/* ---------- TAB SWITCHING ----------
+   All four tabs (Price, Analysis, Calendar, Tools) now behave identically —
+   Price used to be a special case (just scroll, no real panel) which is
+   what caused the "clicking Price/News looks like the same page" confusion.
+   Now Price is a real panel like the rest, so this is one simple, uniform
+   piece of logic instead of two different code paths.
+------------------------------------------ */
+const TAB_ORDER = ['price', 'analysis', 'calendar', 'tools'];
 const tabBtns = document.querySelectorAll('.tab-btn');
 const panels = document.querySelectorAll('.panel');
 const navItems = document.querySelectorAll('.nav-item');
 
+function activateTab(key){
+  tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === key));
+  panels.forEach(p => p.classList.toggle('active', p.id === 'panel-' + key));
+  navItems.forEach((n, idx) => n.classList.toggle('active', TAB_ORDER[idx] === key));
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
 tabBtns.forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    tabBtns.forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');
-    panels.forEach(p=>p.classList.remove('active'));
-    document.getElementById('panel-'+btn.dataset.tab).classList.add('active');
-    navItems.forEach(n=>n.classList.remove('active'));
-    const idx = btn.dataset.tab === 'news' ? 1 : btn.dataset.tab === 'calendar' ? 2 : 3;
-    navItems[idx].classList.add('active');
-  });
+  btn.addEventListener('click', ()=> activateTab(btn.dataset.tab));
 });
 
 navItems.forEach((item, idx)=>{
-  item.addEventListener('click', ()=>{
-    const map = ['price','news','calendar','tools'];
-    const key = map[idx];
-    navItems.forEach(n=>n.classList.remove('active'));
-    item.classList.add('active');
-    if(key === 'price'){
-      // Price has no separate panel of its own — it's the board always at
-      // the top. So clicking it should HIDE whichever panel (News/Calendar/
-      // Tools) was open, not leave it sitting there under the price board —
-      // that leftover panel was what made it look like "same page" no
-      // matter which nav item you tapped.
-      tabBtns.forEach(b=>b.classList.remove('active'));
-      panels.forEach(p=>p.classList.remove('active'));
-      window.scrollTo({top:0, behavior:'smooth'});
-      return;
-    }
-    tabBtns.forEach(b=>b.classList.remove('active'));
-    panels.forEach(p=>p.classList.remove('active'));
-    document.querySelector(`.tab-btn[data-tab="${key}"]`).classList.add('active');
-    document.getElementById('panel-'+key).classList.add('active');
-  });
+  item.addEventListener('click', ()=> activateTab(TAB_ORDER[idx]));
 });
 
 /* ---------- SHARED: multi-proxy fetch (tries several free CORS proxies in order) ---------- */

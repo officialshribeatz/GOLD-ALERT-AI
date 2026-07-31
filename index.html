@@ -322,39 +322,49 @@
   </div>
 </header>
 
-<!-- LIVE PRICE BOARD -->
-<div class="ticker-board">
-  <div class="ticker-label"><span>XAU / USD &middot; Spot (TradingView)</span></div>
-  <div class="tradingview-widget-container" id="tv-widget-container" style="margin-top:6px; border-radius:12px; overflow:hidden;">
-    <div class="tradingview-widget-container__widget"></div>
-    <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-single-quote.js" async>
-    {
-      "symbol": "OANDA:XAUUSD",
-      "width": "100%",
-      "isTransparent": true,
-      "colorTheme": "dark",
-      "locale": "en"
-    }
-    </script>
-  </div>
-  <div class="ai-strip">
-    <div class="ai-badge up" id="aiBadge">BULLISH</div>
-    <div class="ai-text" id="aiText">AI Analysis लवकरच (Phase 2) &mdash; सध्या फक्त live price दाखवत आहोत.</div>
-  </div>
-</div>
 
 <div class="tabs">
-  <div class="tab-btn active" data-tab="news">News</div>
+  <div class="tab-btn active" data-tab="price">Price</div>
+  <div class="tab-btn" data-tab="analysis">Analysis</div>
   <div class="tab-btn" data-tab="calendar">Calendar</div>
   <div class="tab-btn" data-tab="tools">Tools</div>
 </div>
 
-<!-- NEWS PANEL -->
-<section class="panel active" id="panel-news">
+<!-- PRICE + NEWS PANEL (merged — price board on top, gold news right below it) -->
+<section class="panel active" id="panel-price">
+  <div class="ticker-board">
+    <div class="ticker-label"><span>XAU / USD &middot; Spot (TradingView)</span></div>
+    <div class="tradingview-widget-container" id="tv-widget-container" style="margin-top:6px; border-radius:12px; overflow:hidden;">
+      <div class="tradingview-widget-container__widget"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-single-quote.js" async>
+      {
+        "symbol": "OANDA:XAUUSD",
+        "width": "100%",
+        "isTransparent": true,
+        "colorTheme": "dark",
+        "locale": "en"
+      }
+      </script>
+    </div>
+    <div class="ai-strip">
+      <div class="ai-badge up" id="aiBadge">BULLISH</div>
+      <div class="ai-text" id="aiText">AI Analysis लवकरच (Phase 2) &mdash; सध्या फक्त live price दाखवत आहोत.</div>
+    </div>
+  </div>
+
   <div class="section-title">Breaking Gold News <span class="count" id="newsCount">--</span></div>
   <button id="refreshNewsBtn" style="width:100%; background:var(--panel); border:1px solid var(--line); color:var(--gold-soft); padding:9px; border-radius:9px; font-size:12px; margin-bottom:12px;">🔄 News Refresh कर</button>
   <div id="newsList">
     <div class="empty-state"><div class="spinner"></div>News लोड होत आहे...</div>
+  </div>
+</section>
+
+<!-- ANALYSIS PANEL (placeholder — Phase 2/3: AI sentiment, key levels, daily outlook) -->
+<section class="panel" id="panel-analysis">
+  <div class="section-title">AI Market Analysis</div>
+  <div class="empty-state" style="padding:50px 20px;">
+    🧠 AI Sentiment, Key Levels आणि Daily Gold Outlook<br><br>
+    लवकरच येत आहे (Phase 2/3) — सध्या हे काम चालू आहे.
   </div>
 </section>
 
@@ -421,11 +431,11 @@
 
 <nav class="bottom-nav">
   <div class="nav-item active"><div class="nav-icon">◆</div>Price</div>
-  <div class="nav-item"><div class="nav-icon">📰</div>News</div>
+  <div class="nav-item"><div class="nav-icon">🧠</div>Analysis</div>
   <div class="nav-item"><div class="nav-icon">📅</div>Calendar</div>
   <div class="nav-item"><div class="nav-icon">⚙</div>Tools</div>
 </nav>
 
-<script src="script.js"></script>
+<script src="script.js?v=3"></script>
 </body>
 </html>
