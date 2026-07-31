@@ -518,7 +518,9 @@ async function fetchNews(){
       return (json.items || []).slice(0, 8).map(item => ({
         source: feed.name,
         title: item.title || '',
-        pubDate: item.pubDate || ''
+        pubDate: item.pubDate || '',
+        link: item.link || '',
+        description: item.description || ''
       }));
     }catch(e){
       console.warn('rss2json failed for', feed.name, '— trying raw proxy fallback', e);
@@ -528,7 +530,9 @@ async function fetchNews(){
       return items.map(item => ({
         source: feed.name,
         title: item.querySelector('title')?.textContent || '',
-        pubDate: item.querySelector('pubDate')?.textContent || ''
+        pubDate: item.querySelector('pubDate')?.textContent || '',
+        link: item.querySelector('link')?.textContent || '',
+        description: item.querySelector('description')?.textContent || ''
       }));
     }
   }));
@@ -576,14 +580,24 @@ async function fetchNews(){
   const topItems = allItems.slice(0, 15);
 
   listEl.innerHTML = topItems.map((n, i) => `
-    <div class="news-card" style="${n.goldBullish ? 'border:2px solid #3ecf8e; background:rgba(62,207,142,0.10); box-shadow:0 0 12px rgba(62,207,142,0.3);' : n.goldBearish ? 'border:2px solid #ff8c42; background:rgba(255,140,66,0.10); box-shadow:0 0 12px rgba(255,140,66,0.3);' : n.important ? 'border:2px solid #ff4d4d; background:rgba(255,77,77,0.08); box-shadow:0 0 12px rgba(255,77,77,0.25);' : ''}">
+    <div class="news-card" style="cursor:pointer; ${n.goldBullish ? 'border:2px solid #3ecf8e; background:rgba(62,207,142,0.10); box-shadow:0 0 12px rgba(62,207,142,0.3);' : n.goldBearish ? 'border:2px solid #ff8c42; background:rgba(255,140,66,0.10); box-shadow:0 0 12px rgba(255,140,66,0.3);' : n.important ? 'border:2px solid #ff4d4d; background:rgba(255,77,77,0.08); box-shadow:0 0 12px rgba(255,77,77,0.25);' : ''}">
       ${n.goldBullish ? `<div style="display:inline-block; background:#3ecf8e; color:#062b1a; font-weight:800; font-size:11px; padding:3px 8px; border-radius:6px; margin-bottom:6px; letter-spacing:.3px;">📈 GOLD बुलिश — फायद्याची बातमी</div>` : n.goldBearish ? `<div style="display:inline-block; background:#ff8c42; color:#2b1300; font-weight:800; font-size:11px; padding:3px 8px; border-radius:6px; margin-bottom:6px; letter-spacing:.3px;">🔻 GOLD बेअरिश — सावध रहा</div>` : n.important ? `<div style="display:inline-block; background:#ff4d4d; color:#1a0000; font-weight:800; font-size:11px; padding:3px 8px; border-radius:6px; margin-bottom:6px; letter-spacing:.3px;">🚨 HIGH IMPACT — लगेच लक्ष द्या</div>` : ''}
       <div class="news-source">${n.source}</div>
       <div class="news-title">${escapeHtml(n.title)}</div>
       <div class="news-title-mr" id="mr-${i}" style="color:var(--gold-soft); font-size:12.5px; margin-top:6px; line-height:1.5;">Marathi मध्ये भाषांतर होत आहे...</div>
       <div class="news-time">${timeAgo(n.pubDate)}</div>
+      <div style="margin-top:8px; font-size:11px; color:var(--gold-soft); font-weight:600;" class="news-toggle-hint" id="hint-${i}">🔽 महत्त्वाचे मुद्दे बघण्यासाठी टॅप कर</div>
+      <div class="news-points" id="pts-${i}"></div>
     </div>
   `).join('');
+
+  // Tapping a card expands/collapses a short "key points" summary right
+  // there in the list — pulled from the RSS feed's own description field
+  // (the short excerpt publishers include for exactly this purpose), split
+  // into a few bullet points. No full article text, no leaving the app.
+  listEl.querySelectorAll('.news-card').forEach((card, i) => {
+    card.addEventListener('click', ()=> toggleKeyPoints(i, topItems[i].description));
+  });
 
   // Translate each headline to Marathi in the background (free MyMemory API, no key needed)
   // staggered slightly so we don't fire 15 requests at once and trip rate limits
@@ -725,4 +739,47 @@ if(localStorage.getItem('goldAlertAI_justUpdated') === '1'){
     document.body.appendChild(banner);
     setTimeout(()=>{ banner.style.transition='opacity .4s'; banner.style.opacity='0'; setTimeout(()=>banner.remove(), 400); }, 3000);
   });
+}
+
+/* ---------- INLINE KEY POINTS (expand a news card in place, no external page) ---------- */
+function stripHtml(html){
+  const div = document.createElement('div');
+  div.innerHTML = html || '';
+  return div.textContent || div.innerText || '';
+}
+
+// Breaks the RSS feed's own short description/excerpt into a few clean
+// bullet points. This is the summary publishers already include in their
+// feed for exactly this kind of excerpt display — not the full article body.
+function extractKeyPoints(description){
+  const clean = stripHtml(description).replace(/\s+/g,' ').trim();
+  if(!clean) return [];
+  const sentences = clean.split(/(?<=[.!?])\s+/).map(s=>s.trim()).filter(s=>s.length > 12);
+  return sentences.slice(0, 4);
+}
+
+const openPointsIndex = new Set();
+
+function toggleKeyPoints(i, description){
+  const box = document.getElementById('pts-'+i);
+  const hint = document.getElementById('hint-'+i);
+  if(!box) return;
+
+  const isOpen = box.classList.contains('open');
+  if(isOpen){
+    box.classList.remove('open');
+    openPointsIndex.delete(i);
+    if(hint) hint.textContent = '🔽 महत्त्वाचे मुद्दे बघण्यासाठी टॅप कर';
+    return;
+  }
+
+  const points = extractKeyPoints(description);
+  if(points.length === 0){
+    box.innerHTML = `<div class="pts-empty">या बातमीसाठी अजून जास्त तपशील उपलब्ध नाही.</div>`;
+  } else {
+    box.innerHTML = `<ul>${points.map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`;
+  }
+  box.classList.add('open');
+  openPointsIndex.add(i);
+  if(hint) hint.textContent = '🔼 बंद करण्यासाठी परत टॅप कर';
 }
