@@ -27,7 +27,13 @@ navItems.forEach((item, idx)=>{
     navItems.forEach(n=>n.classList.remove('active'));
     item.classList.add('active');
     if(key === 'price'){
-      // just scroll up, price board always visible
+      // Price has no separate panel of its own — it's the board always at
+      // the top. So clicking it should HIDE whichever panel (News/Calendar/
+      // Tools) was open, not leave it sitting there under the price board —
+      // that leftover panel was what made it look like "same page" no
+      // matter which nav item you tapped.
+      tabBtns.forEach(b=>b.classList.remove('active'));
+      panels.forEach(p=>p.classList.remove('active'));
       window.scrollTo({top:0, behavior:'smooth'});
       return;
     }

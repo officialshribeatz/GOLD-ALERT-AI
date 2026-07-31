@@ -157,7 +157,10 @@
     background:var(--gold); color:#181300;
   }
 
-  section.panel{display:none; padding:0 16px; animation:fade .25s ease;}
+  /* Extra bottom padding on every panel so the last card is never hidden
+     behind the fixed bottom nav bar — this is on top of body's own
+     padding-bottom, since panels can be taller than the viewport. */
+  section.panel{display:none; padding:0 16px 110px; animation:fade .25s ease;}
   section.panel.active{display:block;}
   @keyframes fade{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);}}
 
