@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gold-alert-ai-v6';
+const CACHE_NAME = 'gold-alert-ai-v8';
 const ASSETS = [
   './index.html',
   './script.js',
@@ -29,5 +29,23 @@ self.addEventListener('fetch', (event) => {
   }
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request))
+  );
+});
+
+// Tapping a notification should bring the app to the front (or open it fresh)
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientsArr => {
+      const appUrl = self.registration.scope; // e.g. .../gold-alert-ai/
+      for (const client of clientsArr) {
+        if (client.url.startsWith(appUrl) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(appUrl);
+      }
+    })
   );
 });
