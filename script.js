@@ -210,8 +210,6 @@ async function pollPriceForAlerts(){
     if(typeof d.price === 'number'){
       if(needAlertCheck) checkAlerts(d.price);
       if(needLiqCheck) checkLiquidityZones(d.price);
-      logPriceForSwings(d.price);
-      checkSwingProximity(d.price);
     }
   }catch(e){ /* silent fail, try again next tick */ }
 }
@@ -304,72 +302,15 @@ updateLiqInfo();
 fetchDayHighLowForLiq();
 setInterval(fetchDayHighLowForLiq, 30000); // day high/low doesn't need to refresh often
 
-/* ---------- SWING LEVELS (self-learning liquidity pools) ----------
-   Since free multi-day historical OHLC data isn't available, we build our own
-   history locally: every price tick gets logged, and simple fractal swing
-   detection (a point higher/lower than its neighbors) finds real swing
-   highs/lows over time. These accumulate in localStorage and persist across
-   visits, so the longer the app stays in use, the more levels it learns.
+/* ---------- SWING LEVELS (server-side, GitHub Actions computed) ----------
+   All detection now happens on the GitHub Actions server every 5 min,
+   independent of any device being open. This just displays what the
+   server has found, pulled from Firebase Realtime Database.
 ------------------------------------------ */
-const SWING_HISTORY_KEY = 'goldAlertAI_priceHistory';
-const SWING_LEVELS_KEY = 'goldAlertAI_swingLevels';
-const SWING_FRACTAL_N = 4; // neighbors on each side to confirm a swing point
-const SWING_DEDUPE_GAP = 15; // $ gap to treat two levels as "the same" zone
-const SWING_MIN_AMPLITUDE = 8; // $ — tuned for swing-trading (H4/Daily-style) levels, not scalping noise
+const SWING_DEDUPE_GAP = 15; // $ — kept for display/merge purposes
 const SWING_MAX_STORED = 12;
-const SWING_LOG_INTERVAL = 15 * 60 * 1000; // sample once every 15 min — approximates H1/H4-scale structure
 
-function loadPriceHistory(){
-  try{ return JSON.parse(localStorage.getItem(SWING_HISTORY_KEY)) || []; }
-  catch(e){ return []; }
-}
-function savePriceHistory(hist){
-  // cap history length so localStorage doesn't grow unbounded
-  if(hist.length > 300) hist = hist.slice(hist.length - 300);
-  localStorage.setItem(SWING_HISTORY_KEY, JSON.stringify(hist));
-  return hist;
-}
-function loadSwingLevels(){
-  try{ return JSON.parse(localStorage.getItem(SWING_LEVELS_KEY)) || []; }
-  catch(e){ return []; }
-}
-function saveSwingLevels(levels){
-  localStorage.setItem(SWING_LEVELS_KEY, JSON.stringify(levels));
-}
-
-let priceHistory = loadPriceHistory();
-let swingLevels = loadSwingLevels();
-let swingNotified = {}; // key: level value, value: bool (prevents notification spam)
-
-function detectNewSwings(){
-  const n = SWING_FRACTAL_N;
-  if(priceHistory.length < n*2 + 1) return;
-
-  const idx = priceHistory.length - 1 - n;
-  if(idx < n) return;
-  const point = priceHistory[idx];
-  const left = priceHistory.slice(idx-n, idx);
-  const right = priceHistory.slice(idx+1, idx+1+n);
-  const neighbors = [...left, ...right];
-
-  // Strict comparison (not <=/>=) so a flat/noisy patch can't be both a high AND a low.
-  // Also require the point to be meaningfully higher/lower than its neighbors (real swing,
-  // not just rounding noise) — at least MIN_AMPLITUDE $ away from every neighbor.
-  const isHigh = neighbors.every(p => point.price > p.price + SWING_MIN_AMPLITUDE);
-  const isLow = neighbors.every(p => point.price < p.price - SWING_MIN_AMPLITUDE);
-
-  if(isHigh || isLow){
-    const type = isHigh ? 'high' : 'low';
-    const duplicate = swingLevels.find(s => s.type === type && Math.abs(s.value - point.price) <= SWING_DEDUPE_GAP);
-    if(!duplicate){
-      swingLevels.push({ type, value: point.price, time: point.t });
-      swingLevels.sort((a,b)=> b.time - a.time);
-      if(swingLevels.length > SWING_MAX_STORED) swingLevels = swingLevels.slice(0, SWING_MAX_STORED);
-      saveSwingLevels(swingLevels);
-      renderSwingLevels();
-    }
-  }
-}
+let swingLevels = [];
 
 function renderSwingLevels(){
   const listEl = document.getElementById('swingList');
@@ -389,57 +330,22 @@ function renderSwingLevels(){
   `).join('');
 }
 
-function checkSwingProximity(price){
-  swingLevels.forEach(s=>{
-    const near = Math.abs(price - s.value) <= LIQ_PROXIMITY;
-    const key = s.type + '_' + s.value;
-    if(near && !swingNotified[key]){
-      swingNotified[key] = true;
-      const msg = `Price (${price.toFixed(2)}) जुन्या swing ${s.type === 'high' ? 'high' : 'low'} (${s.value.toFixed(2)}) जवळ आलं.`;
-      if(Notification.permission === 'granted'){
-        safeNotify('📍 Gold Alert AI — Swing Level', { body: msg, icon: 'icon-192.png' });
-      }
-    } else if(!near){
-      swingNotified[key] = false;
-    }
-  });
-}
-
-function logPriceForSwings(price){
-  const now = Date.now();
-  if(logPriceForSwings._last && now - logPriceForSwings._last < SWING_LOG_INTERVAL) return;
-  logPriceForSwings._last = now;
-  priceHistory.push({ price, t: now });
-  priceHistory = savePriceHistory(priceHistory);
-  detectNewSwings();
-}
-
 renderSwingLevels();
 
 document.getElementById('clearSwingBtn')?.addEventListener('click', ()=>{
-  priceHistory = [];
   swingLevels = [];
-  localStorage.removeItem(SWING_HISTORY_KEY);
-  localStorage.removeItem(SWING_LEVELS_KEY);
   renderSwingLevels();
 });
 
-// Also pull server-side swings (computed by GitHub Actions every 5 min, independent
-// of this device being open) and merge them in — this is what makes levels show up
-// even after the app was closed the whole time.
+// Pull server-side swings (computed by GitHub Actions every 5 min) — this is
+// what makes levels show up even after the app was closed the whole time.
 async function fetchServerSwings(){
   if(typeof firebaseConfig === 'undefined' || firebaseConfig.apiKey === 'YOUR_API_KEY') return;
   try{
     const res = await fetch(firebaseConfig.databaseURL + '/swingLevels.json');
     const serverSwings = await res.json();
     if(Array.isArray(serverSwings) && serverSwings.length){
-      const merged = [...serverSwings];
-      swingLevels.forEach(local=>{
-        const dup = merged.find(s => s.type === local.type && Math.abs(s.value - local.value) <= SWING_DEDUPE_GAP);
-        if(!dup) merged.push(local);
-      });
-      merged.sort((a,b)=> b.time - a.time);
-      swingLevels = merged.slice(0, SWING_MAX_STORED);
+      swingLevels = serverSwings.slice(0, SWING_MAX_STORED);
       renderSwingLevels();
     }
   }catch(e){
@@ -658,3 +564,23 @@ if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW register failed', e));
   });
 }
+
+/* ---------- FORCE UPDATE (clears SW + caches without needing phone Settings) ---------- */
+document.getElementById('forceUpdateBtn')?.addEventListener('click', async ()=>{
+  const btn = document.getElementById('forceUpdateBtn');
+  btn.textContent = '⏳ Clean करत आहे...';
+  try{
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for(const reg of regs) await reg.unregister();
+    }
+    if('caches' in window){
+      const keys = await caches.keys();
+      for(const key of keys) await caches.delete(key);
+    }
+  }catch(e){
+    console.warn('Force update cleanup failed:', e);
+  }
+  // Hard reload with cache-buster so even the HTML itself is fetched fresh
+  window.location.href = window.location.pathname + '?v=' + Date.now();
+});
