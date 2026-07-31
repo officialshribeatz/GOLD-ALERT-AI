@@ -622,23 +622,48 @@ async function fetchNews(){
   }
 }
 
+// MyMemory's free tier has a small daily quota. When it's exceeded, it
+// doesn't return an error — it returns its warning message wrapped as if it
+// were a normal translation. We detect that specific pattern and treat it
+// as a failure instead of displaying "MYMEMORY WARNING: ..." as a headline.
+function isValidTranslation(text){
+  if(!text) return false;
+  return !/mymemory warning|usagelimit|query length limit/i.test(text);
+}
+
+// Once we've confirmed the quota is exhausted, avoid firing dozens more
+// doomed requests (each headline + each key point would otherwise retry) —
+// just show English directly for the rest of the day.
+const TRANSLATE_QUOTA_KEY = 'goldAlertAI_translateQuotaHitAt';
+function isTranslateQuotaLikelyExceeded(){
+  const t = localStorage.getItem(TRANSLATE_QUOTA_KEY);
+  if(!t) return false;
+  return (Date.now() - parseInt(t, 10)) < 12 * 60 * 60 * 1000; // assume exhausted for 12h
+}
+function markTranslateQuotaExceeded(){
+  localStorage.setItem(TRANSLATE_QUOTA_KEY, Date.now().toString());
+}
+
 async function translateToMarathi(text, idx){
   const el = document.getElementById('mr-'+idx);
   if(!el) return;
+  if(isTranslateQuotaLikelyExceeded()){
+    el.textContent = text;
+    return;
+  }
   try{
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|mr`;
     const res = await fetch(url, {cache:'no-store'});
     const data = await res.json();
     const translated = data?.responseData?.translatedText;
-    if(translated && el){
+    if(isValidTranslation(translated)){
       el.textContent = translated;
-    } else if(el){
-      // translation failed — this line is now the primary headline, so
-      // fall back to the original English text instead of hiding it
+    } else {
+      markTranslateQuotaExceeded();
       el.textContent = text;
     }
   }catch(e){
-    if(el) el.textContent = text;
+    el.textContent = text;
   }
 }
 
@@ -792,12 +817,21 @@ function toggleKeyPoints(i, description){
 async function translatePoint(text, i, j){
   const el = document.getElementById(`pt-${i}-${j}`);
   if(!el) return;
+  if(isTranslateQuotaLikelyExceeded()){
+    el.textContent = text;
+    return;
+  }
   try{
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|mr`;
     const res = await fetch(url, {cache:'no-store'});
     const data = await res.json();
     const translated = data?.responseData?.translatedText;
-    el.textContent = translated || text;
+    if(isValidTranslation(translated)){
+      el.textContent = translated;
+    } else {
+      markTranslateQuotaExceeded();
+      el.textContent = text;
+    }
   }catch(e){
     el.textContent = text;
   }
