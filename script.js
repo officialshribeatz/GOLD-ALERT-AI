@@ -739,10 +739,34 @@ function renderCalendar(){
 
 renderCalendar();
 
-/* ---------- SERVICE WORKER REGISTER (PWA) ---------- */
+/* ---------- SERVICE WORKER REGISTER (PWA) ----------
+   Installed "Add to Home Screen" apps behave differently from the site
+   opened in Chrome: Chrome checks for a new sw.js on pretty much every
+   visit, but an installed/standalone app often only checks once every
+   24 hours on its own — that's why replacing files on GitHub showed up
+   immediately in Chrome but needed a full uninstall/reinstall in the
+   installed app. Fixing that here: explicitly force an update check the
+   moment the app opens (and again periodically while it stays open), and
+   auto-reload as soon as a new version takes control — so the installed
+   app updates itself just like the browser tab does, no reinstall needed.
+------------------------------------------ */
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW register failed', e));
+    navigator.serviceWorker.register('sw.js')
+      .then(reg=>{
+        reg.update(); // force a check right away instead of waiting for the browser's own (slow) schedule
+        setInterval(()=> reg.update(), 5 * 60 * 1000); // and keep re-checking every 5 min while the app is open
+      })
+      .catch(e=>console.warn('SW register failed', e));
+  });
+
+  // Once a newly-updated service worker takes over, auto-reload once so the
+  // person sees the new version immediately instead of the old cached page.
+  let swRefreshedOnce = false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(swRefreshedOnce) return;
+    swRefreshedOnce = true;
+    window.location.reload();
   });
 }
 
@@ -905,3 +929,79 @@ function updateAIAnalysis(){
     `;
   }
 }
+
+/* ---------- RISK & LOT SIZE CALCULATOR (Phase 3) ----------
+   Standard gold contract size = 100 troy oz per 1.0 lot (this is the
+   universal XAUUSD convention most brokers use — mini lot 0.1 = 10 oz,
+   micro lot 0.01 = 1 oz). So a $1 price move on 1.0 lot = $100 P/L.
+   Position sizing formula: lot size = risk amount ($) / (stop distance
+   ($) × 100). This keeps the loss on a stopped-out trade capped at
+   exactly the risk % the person chose, regardless of how wide their
+   stop loss is.
+------------------------------------------ */
+const GOLD_OZ_PER_STANDARD_LOT = 100;
+
+document.getElementById('calcRiskBtn')?.addEventListener('click', ()=>{
+  const statusEl = document.getElementById('riskCalcStatus');
+  const resultEl = document.getElementById('riskCalcResult');
+
+  const balance = parseFloat(document.getElementById('riskBalance').value);
+  const riskPct = parseFloat(document.getElementById('riskPercent').value);
+  const entry = parseFloat(document.getElementById('riskEntry').value);
+  const stop = parseFloat(document.getElementById('riskStop').value);
+
+  if(isNaN(balance) || balance <= 0){
+    statusEl.textContent = 'कृपया योग्य Account Balance टाक';
+    resultEl.innerHTML = '';
+    return;
+  }
+  if(isNaN(riskPct) || riskPct <= 0 || riskPct > 100){
+    statusEl.textContent = 'कृपया योग्य Risk % टाक (0-100 च्या दरम्यान)';
+    resultEl.innerHTML = '';
+    return;
+  }
+  if(isNaN(entry) || entry <= 0 || isNaN(stop) || stop <= 0){
+    statusEl.textContent = 'कृपया योग्य Entry आणि Stop Loss price टाक';
+    resultEl.innerHTML = '';
+    return;
+  }
+  if(entry === stop){
+    statusEl.textContent = 'Entry आणि Stop Loss same असू शकत नाही';
+    resultEl.innerHTML = '';
+    return;
+  }
+
+  statusEl.textContent = '';
+
+  const stopDistance = Math.abs(entry - stop);
+  const riskAmount = balance * (riskPct / 100);
+  const lotSize = riskAmount / (stopDistance * GOLD_OZ_PER_STANDARD_LOT);
+  const positionValue = lotSize * GOLD_OZ_PER_STANDARD_LOT * entry;
+  const direction = stop < entry ? 'BUY (वर जाईल असं गृहीत धरून)' : 'SELL (खाली जाईल असं गृहीत धरून)';
+
+  // Round lot size DOWN to the nearest 0.01 — rounding up would risk more
+  // than the chosen percentage, which defeats the purpose of the calculator.
+  const roundedLot = Math.floor(lotSize * 100) / 100;
+
+  let lotWarning = '';
+  if(roundedLot < 0.01){
+    lotWarning = `<div class="empty-state" style="padding:10px 4px; color:var(--bear);">⚠️ या risk % आणि stop distance नुसार lot size 0.01 पेक्षाही कमी येतोय — एकतर risk % वाढव, किंवा stop loss जवळ घे.</div>`;
+  }
+
+  resultEl.innerHTML = `
+    <div class="risk-result-card">
+      <div class="risk-result-highlight">
+        <div class="big">${roundedLot.toFixed(2)} lot</div>
+        <div class="lbl">शिफारस केलेला Lot Size (${direction})</div>
+      </div>
+      ${lotWarning}
+      <div class="risk-result-row"><span>Stop Distance</span><span>$${stopDistance.toFixed(2)}</span></div>
+      <div class="risk-result-row"><span>Risk Amount</span><span>$${riskAmount.toFixed(2)} (${riskPct}%)</span></div>
+      <div class="risk-result-row"><span>Position Value</span><span>$${positionValue.toFixed(2)}</span></div>
+      <div class="risk-result-row"><span>$ per $1 move (या lot वर)</span><span>$${(roundedLot * GOLD_OZ_PER_STANDARD_LOT).toFixed(2)}</span></div>
+    </div>
+    <div class="empty-state" style="padding:8px 4px 20px; text-align:left; font-size:10.5px;">
+      ⚠️ हा फक्त गणिती calculator आहे (100 oz/lot या standard gold convention नुसार) — तुमच्या broker चा exact contract size/margin वेगळा असू शकतो, ट्रेड घेण्याआधी broker platform वर एकदा खात्री करा.
+    </div>
+  `;
+});
