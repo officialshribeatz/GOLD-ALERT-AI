@@ -293,6 +293,26 @@
   .swing-card .swing-type.low{ color:var(--bear); }
   .swing-card .swing-time{ font-size:10px; color:var(--sub); margin-top:2px; }
   .swing-card .swing-val{ font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600; color:var(--gold-soft); }
+
+  .risk-result-card{
+    background:linear-gradient(180deg,var(--panel-2),var(--panel));
+    border:1px solid var(--gold); border-radius:12px;
+    padding:16px; margin-top:6px; margin-bottom:14px;
+  }
+  .risk-result-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:8px 0; border-bottom:1px dashed var(--line);
+    font-size:12.5px;
+  }
+  .risk-result-row:last-child{ border-bottom:none; }
+  .risk-result-row span:first-child{ color:var(--sub); }
+  .risk-result-row span:last-child{ font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--gold-soft); }
+  .risk-result-highlight{
+    text-align:center; padding:14px; margin-bottom:10px;
+    background:rgba(212,175,55,.1); border-radius:9px;
+  }
+  .risk-result-highlight .big{ font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:700; color:var(--gold-soft); }
+  .risk-result-highlight .lbl{ font-size:11px; color:var(--sub); margin-top:4px; }
   .spinner{
     width:22px; height:22px; border-radius:50%;
     border:2.5px solid var(--line); border-top-color:var(--gold);
@@ -448,8 +468,23 @@
   <button id="clearSwingBtn" style="width:100%; background:var(--panel); border:1px solid var(--line); color:var(--sub); padding:10px; border-radius:9px; font-size:12px; margin-bottom:14px;">🗑️ जुनी Swing Data पुसून टाक</button>
   <div id="swingList"></div>
 
+  <div class="section-title" style="margin-top:22px;">🧮 Risk & Lot Size Calculator</div>
+  <div class="alert-form">
+    <div class="alert-form-row">
+      <input type="number" id="riskBalance" placeholder="Account Balance ($)" step="0.01">
+      <input type="number" id="riskPercent" placeholder="Risk %" step="0.1" value="1">
+    </div>
+    <div class="alert-form-row">
+      <input type="number" id="riskEntry" placeholder="Entry Price (उदा. 4050.00)" step="0.01">
+      <input type="number" id="riskStop" placeholder="Stop Loss Price (उदा. 4040.00)" step="0.01">
+    </div>
+    <button id="calcRiskBtn" class="alert-add-btn">🧮 Calculate कर</button>
+    <div class="alert-status" id="riskCalcStatus"></div>
+  </div>
+  <div id="riskCalcResult"></div>
+
   <div class="section-title" style="margin-top:22px;">इतर Tools</div>
-  <div class="empty-state">Risk Calculator, Lot Size Calculator आणि Trading Journal<br>Phase 3 मध्ये येतील 🚧</div>
+  <div class="empty-state">Trading Journal<br>लवकरच येईल 🚧</div>
 
   <div class="section-title" style="margin-top:22px;">⚙️ App Maintenance</div>
   <button id="forceUpdateBtn" style="width:100%; background:var(--panel); border:1px solid var(--gold); color:var(--gold-soft); padding:12px 10px; border-radius:9px; font-size:12px; line-height:1.4; font-weight:600; margin-bottom:8px; text-align:center;">🔄 Force Update<br><span style="font-weight:400; font-size:10.5px; color:var(--sub);">नवीन code आणा, cache साफ कर</span></button>
@@ -463,6 +498,6 @@
   <div class="nav-item"><div class="nav-icon">⚙</div>Tools</div>
 </nav>
 
-<script src="script.js?v=7"></script>
+<script src="script.js?v=8"></script>
 </body>
 </html>
