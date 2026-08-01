@@ -762,10 +762,20 @@ if('serviceWorker' in navigator){
 
   // Once a newly-updated service worker takes over, auto-reload once so the
   // person sees the new version immediately instead of the old cached page.
-  let swRefreshedOnce = false;
+  //
+  // IMPORTANT: a plain JS variable here resets to false on every reload, so
+  // if anything ever caused a second controllerchange in the same session
+  // (e.g. a flaky network briefly serving inconsistent files), the page would
+  // keep reloading itself forever — which is exactly the "page keeps auto
+  // refreshing" loop that happened. Using sessionStorage instead means the
+  // guard survives the reload itself, so it truly can only fire once per
+  // session. A fresh time-based throttle is added as a second safety net.
+  const RELOAD_FLAG_KEY = 'goldAlertAI_swAutoReloadedAt';
   navigator.serviceWorker.addEventListener('controllerchange', ()=>{
-    if(swRefreshedOnce) return;
-    swRefreshedOnce = true;
+    const last = sessionStorage.getItem(RELOAD_FLAG_KEY);
+    const now = Date.now();
+    if(last && (now - parseInt(last, 10)) < 60000) return; // already reloaded in the last minute — never loop
+    sessionStorage.setItem(RELOAD_FLAG_KEY, now.toString());
     window.location.reload();
   });
 }
