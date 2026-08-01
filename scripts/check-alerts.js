@@ -70,10 +70,16 @@ async function main(){
   // ---- 2. Server-side swing (H4/Daily-style) detection ----
   // Runs every 5 min regardless of any phone being open — builds real swing
   // history in shared Firebase data so the app just displays it.
-  const N = 4;               // neighbors each side to confirm a swing point
-  const MIN_AMPLITUDE = 8;   // $ — must beat every neighbor by this much
-  const DEDUPE_GAP = 15;     // $ — treat close levels as the same zone
-  const MAX_HISTORY = 500;   // cap stored price ticks (~ a few days at 5 min/tick)
+  //
+  // NOTE: MIN_AMPLITUDE was previously $8, which requires a single 5-min
+  // tick to beat ALL 8 neighboring ticks by $8 — gold usually only moves
+  // $1-5 per 5-min tick in normal conditions, so that threshold was rarely
+  // (if ever) met, which is why swingLevels stayed empty. Lowered to $4,
+  // and N (confirmation window) lowered slightly so levels form faster too.
+  const N = 3;                // neighbors each side to confirm a swing point
+  const MIN_AMPLITUDE = 4;    // $ — must beat every neighbor by this much
+  const DEDUPE_GAP = 12;      // $ — treat close levels as the same zone
+  const MAX_HISTORY = 500;    // cap stored price ticks (~ a few days at 5 min/tick)
   const MAX_SWINGS = 20;
 
   const histSnap = await db.ref('priceHistory').once('value');
@@ -82,12 +88,16 @@ async function main(){
   if(history.length > MAX_HISTORY) history = history.slice(history.length - MAX_HISTORY);
   await db.ref('priceHistory').set(history);
 
+  console.log(`priceHistory length: ${history.length} (need >= ${2 * N + 1} to start checking for swings)`);
+
   const idx = history.length - 1 - N;
   if(idx >= N){
     const point = history[idx];
     const neighbors = [...history.slice(idx - N, idx), ...history.slice(idx + 1, idx + 1 + N)];
     const isHigh = neighbors.every(p => point.price > p.price + MIN_AMPLITUDE);
     const isLow = neighbors.every(p => point.price < p.price - MIN_AMPLITUDE);
+
+    console.log(`Checking candidate point (idx ${idx}, price ${point.price}): isHigh=${isHigh}, isLow=${isLow}`);
 
     if(isHigh || isLow){
       const type = isHigh ? 'high' : 'low';
@@ -114,8 +124,12 @@ async function main(){
             });
           }catch(e){ console.warn('Swing push failed:', e.message); }
         }
+      } else {
+        console.log('Swing candidate found but treated as duplicate of an existing zone, skipping.');
       }
     }
+  } else {
+    console.log('Not enough price history yet to check for a swing point this run.');
   }
 
   // ---- 3. Server-side Liquidity Zone (day high/low proximity) detection ----
