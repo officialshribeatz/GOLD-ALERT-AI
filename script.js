@@ -1113,3 +1113,35 @@ document.getElementById('openChartBtn')?.addEventListener('click', ()=>{
 document.getElementById('fullChartClose')?.addEventListener('click', ()=>{
   document.getElementById('fullChartModal')?.classList.remove('open');
 });
+
+/* ---------- EXPERIMENTAL: TradingView.com login attempt (iframe) ----------
+   Most major sites, including tradingview.com, set X-Frame-Options/CSP
+   headers that specifically block their site from being loaded inside
+   someone else's iframe — this is a deliberate security choice on their
+   end, not something we can override from our side. This is here as an
+   honest experiment: if it's blocked (the common case), the iframe never
+   fires a real 'load' navigation and we show a clear fallback instead of
+   a blank white screen.
+------------------------------------------ */
+document.getElementById('openTvLoginBtn')?.addEventListener('click', ()=>{
+  const modal = document.getElementById('tvLoginModal');
+  const frame = document.getElementById('tvLoginFrame');
+  const fallback = document.getElementById('tvLoginFallback');
+  if(!modal || !frame) return;
+
+  fallback.style.display = 'none';
+  frame.src = 'https://www.tradingview.com/chart/?symbol=OANDA:XAUUSD';
+  modal.classList.add('open');
+
+  let loaded = false;
+  const onLoad = ()=>{ loaded = true; };
+  frame.addEventListener('load', onLoad, { once:true });
+  setTimeout(()=>{ if(!loaded) fallback.style.display = 'flex'; }, 3500);
+});
+
+document.getElementById('tvLoginClose')?.addEventListener('click', ()=>{
+  const modal = document.getElementById('tvLoginModal');
+  const frame = document.getElementById('tvLoginFrame');
+  if(modal) modal.classList.remove('open');
+  if(frame) frame.src = 'about:blank';
+});
