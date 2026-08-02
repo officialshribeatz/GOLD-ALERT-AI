@@ -346,6 +346,8 @@ document.getElementById('clearSwingBtn')?.addEventListener('click', ()=>{
 
 // Pull server-side swings (computed by GitHub Actions every 5 min) — this is
 // what makes levels show up even after the app was closed the whole time.
+let lastCandlePattern = null;
+
 async function fetchServerSwings(){
   if(typeof firebaseConfig === 'undefined' || firebaseConfig.apiKey === 'YOUR_API_KEY') return;
   try{
@@ -357,6 +359,18 @@ async function fetchServerSwings(){
     }
   }catch(e){
     console.warn('Server swing fetch failed (non-fatal):', e);
+  }
+  try{
+    const res2 = await fetch(firebaseConfig.databaseURL + '/lastCandlePattern.json');
+    const pattern = await res2.json();
+    if(pattern && pattern.type){
+      // only treat it as "current" if detected within the last ~2 hours —
+      // an old stale pattern shouldn't keep influencing the signal forever
+      const isFresh = (Date.now() - (pattern.detectedAt || 0)) < 2 * 60 * 60 * 1000;
+      lastCandlePattern = isFresh ? pattern : null;
+    }
+  }catch(e){
+    console.warn('Server candle pattern fetch failed (non-fatal):', e);
   }
   updateAIAnalysis();
 }
@@ -915,12 +929,21 @@ function updateAIAnalysis(){
   }
 
   const score = newsSignal + swingSignal;
+  let candleSignal = 0;
+  let candleNote = 'अजून candle pattern data नाही';
+  if(lastCandlePattern){
+    if(lastCandlePattern.type === 'bullish_engulfing'){ candleSignal = 1; candleNote = 'Bullish Engulfing (शेवटच्या तासाचा candle)'; }
+    else if(lastCandlePattern.type === 'bearish_engulfing'){ candleSignal = -1; candleNote = 'Bearish Engulfing (शेवटच्या तासाचा candle)'; }
+    else if(lastCandlePattern.type === 'doji'){ candleSignal = 0; candleNote = 'Doji — indecision, स्पष्ट दिशा नाही'; }
+  }
+
+  const totalScore = score + candleSignal;
   let label, cls;
-  if(score >= 1){ label = '📈 BULLISH'; cls = 'up'; }
-  else if(score <= -1){ label = '📉 BEARISH'; cls = 'down'; }
+  if(totalScore >= 1){ label = '📈 BULLISH'; cls = 'up'; }
+  else if(totalScore <= -1){ label = '📉 BEARISH'; cls = 'down'; }
   else { label = '➖ NEUTRAL'; cls = 'neutral'; }
 
-  const detail = `News: ${bullishCount} बुलिश / ${bearishCount} बेअरिश  ·  Swing: ${swingNote}`;
+  const detail = `News: ${bullishCount} बुलिश / ${bearishCount} बेअरिश  ·  Swing: ${swingNote}  ·  Candle: ${candleNote}`;
 
   // Update the compact badge on the Price tab
   const badge = document.getElementById('aiBadge');
@@ -935,7 +958,8 @@ function updateAIAnalysis(){
   if(detailText){
     detailText.innerHTML = `
       <div style="margin-bottom:6px;"><b style="color:var(--text);">News sentiment:</b> ${bullishCount} बुलिश headline, ${bearishCount} बेअरिश headline</div>
-      <div><b style="color:var(--text);">Swing structure:</b> ${swingNote}</div>
+      <div style="margin-bottom:6px;"><b style="color:var(--text);">Swing structure:</b> ${swingNote}</div>
+      <div><b style="color:var(--text);">Candle pattern (1H, approximate):</b> ${candleNote}</div>
     `;
   }
 }
