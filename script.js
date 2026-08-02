@@ -1064,3 +1064,51 @@ document.getElementById('calcRiskBtn')?.addEventListener('click', ()=>{
     </div>
   `;
 });
+
+/* ---------- FULLSCREEN CHART MODAL ----------
+   The TradingView Advanced Chart widget is only injected into the DOM the
+   first time the person taps "Full Chart बघा" — not on every page load —
+   so the Price tab stays light and fast, and the chart's own drawing tools
+   (trendlines etc.) still work exactly the same and still auto-save in the
+   browser, since it's a fully separate real chart instance.
+------------------------------------------ */
+let fullChartLoaded = false;
+
+function loadFullChartWidgetIfNeeded(){
+  if(fullChartLoaded) return;
+  fullChartLoaded = true;
+  const container = document.getElementById('fullChartWidget');
+  if(!container) return;
+  const script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+  script.async = true;
+  script.innerHTML = JSON.stringify({
+    autosize: true,
+    symbol: 'OANDA:XAUUSD',
+    interval: '60',
+    timezone: 'Asia/Kolkata',
+    theme: 'dark',
+    style: '1',
+    locale: 'en',
+    toolbar_bg: '#14171B',
+    enable_publishing: false,
+    hide_top_toolbar: false,
+    hide_legend: false,
+    save_image: true,
+    allow_symbol_change: false,
+    withdateranges: true,
+    calendar: false,
+    support_host: 'https://www.tradingview.com'
+  });
+  container.appendChild(script);
+}
+
+document.getElementById('openChartBtn')?.addEventListener('click', ()=>{
+  loadFullChartWidgetIfNeeded();
+  document.getElementById('fullChartModal')?.classList.add('open');
+});
+
+document.getElementById('fullChartClose')?.addEventListener('click', ()=>{
+  document.getElementById('fullChartModal')?.classList.remove('open');
+});

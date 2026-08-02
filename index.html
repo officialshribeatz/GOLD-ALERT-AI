@@ -346,6 +346,24 @@
   .news-points ul{ margin:0; padding-left:18px; }
   .news-points li{ font-size:12.5px; color:var(--text); line-height:1.5; margin-bottom:6px; }
   .news-points .pts-empty{ font-size:12px; color:var(--sub); }
+
+  /* Fullscreen chart modal */
+  .article-modal{
+    position:fixed; inset:0; z-index:200; display:none;
+    background:var(--bg); flex-direction:column;
+  }
+  .article-modal.open{ display:flex; }
+  .article-modal-bar{
+    background:var(--panel); border-bottom:1px solid var(--line);
+    padding:calc(12px + env(safe-area-inset-top)) 14px 12px 14px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    flex-shrink:0;
+  }
+  .article-modal-title{ font-size:13px; color:var(--gold-soft); font-weight:700; }
+  .article-modal-close{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    width:34px; height:34px; border-radius:9px; font-size:16px; flex-shrink:0;
+  }
 </style>
 </head>
 <body>
@@ -371,34 +389,20 @@
 <!-- PRICE + NEWS PANEL (merged — price board on top, gold news right below it) -->
 <section class="panel active" id="panel-price">
   <div class="ticker-board">
-    <div class="ticker-label"><span>XAU / USD &middot; Live Chart (TradingView)</span></div>
+    <div class="ticker-label"><span>XAU / USD &middot; Spot (TradingView)</span></div>
     <div class="tradingview-widget-container" id="tv-widget-container" style="margin-top:6px; border-radius:12px; overflow:hidden;">
       <div class="tradingview-widget-container__widget"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-single-quote.js" async>
       {
-        "autosize": false,
-        "height": 440,
         "symbol": "OANDA:XAUUSD",
-        "interval": "60",
-        "timezone": "Asia/Kolkata",
-        "theme": "dark",
-        "style": "1",
-        "locale": "en",
-        "toolbar_bg": "#14171B",
-        "enable_publishing": false,
-        "hide_top_toolbar": false,
-        "hide_legend": false,
-        "save_image": true,
-        "allow_symbol_change": false,
-        "withdateranges": true,
-        "calendar": false,
-        "support_host": "https://www.tradingview.com"
+        "width": "100%",
+        "isTransparent": true,
+        "colorTheme": "dark",
+        "locale": "en"
       }
       </script>
     </div>
-    <div class="empty-state" style="padding:8px 4px 0; text-align:left; font-size:10.5px;">
-      ✏️ वरच्या chart वर डावीकडच्या toolbar मधून trendline/drawing काढता येईल — ते आपोआप याच फोनवर save राहील.
-    </div>
+    <button id="openChartBtn" style="width:100%; margin-top:10px; background:var(--panel-2); border:1px solid var(--gold); color:var(--gold-soft); padding:10px; border-radius:9px; font-size:12.5px; font-weight:600;">📊 Full Chart बघा (drawing tools सकट)</button>
     <div class="ai-strip">
       <div class="ai-badge neutral" id="aiBadge">⏳ प्रलंबित</div>
       <div class="ai-text" id="aiText">Analysis साठी news आणि swing data गोळा होत आहे...</div>
@@ -416,6 +420,17 @@
     <div class="empty-state"><div class="spinner"></div>News लोड होत आहे...</div>
   </div>
 </section>
+
+<!-- FULLSCREEN CHART MODAL (opened by the "Full Chart बघा" button above) -->
+<div class="article-modal" id="fullChartModal">
+  <div class="article-modal-bar">
+    <div class="article-modal-title">📊 XAUUSD Full Chart</div>
+    <button class="article-modal-close" id="fullChartClose">✕</button>
+  </div>
+  <div class="tradingview-widget-container" id="fullChartWidget" style="flex:1; background:#0B0D10;">
+    <div class="tradingview-widget-container__widget" style="height:100%;"></div>
+  </div>
+</div>
 
 <!-- ANALYSIS PANEL (news sentiment + swing structure based signal) -->
 <section class="panel" id="panel-analysis">
@@ -519,6 +534,6 @@
   <div class="nav-item"><div class="nav-icon">⚙</div>Tools</div>
 </nav>
 
-<script src="script.js?v=10"></script>
+<script src="script.js?v=11"></script>
 </body>
 </html>
