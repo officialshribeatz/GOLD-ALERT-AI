@@ -321,20 +321,45 @@ let swingLevels = [];
 
 function renderSwingLevels(){
   const listEl = document.getElementById('swingList');
-  if(!listEl) return;
-  if(swingLevels.length === 0){
-    listEl.innerHTML = '';
-    return;
+  const quickEl = document.getElementById('priceSwingQuickList');
+  const countEl = document.getElementById('priceSwingCount');
+
+  if(countEl) countEl.textContent = swingLevels.length || '--';
+
+  if(listEl){
+    if(swingLevels.length === 0){
+      listEl.innerHTML = '';
+    } else {
+      listEl.innerHTML = swingLevels.map(s => `
+        <div class="swing-card">
+          <div>
+            <div class="swing-type ${s.type}">${s.type === 'high' ? '🔺 Swing High' : '🔻 Swing Low'}</div>
+            <div class="swing-time">${new Date(s.time).toLocaleString('en-IN', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
+          </div>
+          <div class="swing-val">${s.value.toFixed(2)}</div>
+        </div>
+      `).join('');
+    }
   }
-  listEl.innerHTML = swingLevels.map(s => `
-    <div class="swing-card">
-      <div>
-        <div class="swing-type ${s.type}">${s.type === 'high' ? '🔺 Swing High' : '🔻 Swing Low'}</div>
-        <div class="swing-time">${new Date(s.time).toLocaleString('en-IN', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
-      </div>
-      <div class="swing-val">${s.value.toFixed(2)}</div>
-    </div>
-  `).join('');
+
+  // Compact version near the chart on the Price tab — just the 4 most
+  // recent levels, so people can eyeball them against the chart above
+  // without needing to switch to the Tools tab.
+  if(quickEl){
+    if(swingLevels.length === 0){
+      quickEl.innerHTML = `<div class="empty-state" style="padding:14px 4px;">अजून स्विंग data जमा होत आहे — Tools tab मध्ये सविस्तर दिसेल.</div>`;
+    } else {
+      quickEl.innerHTML = swingLevels.slice(0, 4).map(s => `
+        <div class="swing-card">
+          <div>
+            <div class="swing-type ${s.type}">${s.type === 'high' ? '🔺 Swing High' : '🔻 Swing Low'}</div>
+            <div class="swing-time">${new Date(s.time).toLocaleString('en-IN', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
+          </div>
+          <div class="swing-val">${s.value.toFixed(2)}</div>
+        </div>
+      `).join('');
+    }
+  }
 }
 
 renderSwingLevels();

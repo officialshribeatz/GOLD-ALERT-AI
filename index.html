@@ -371,23 +371,43 @@
 <!-- PRICE + NEWS PANEL (merged — price board on top, gold news right below it) -->
 <section class="panel active" id="panel-price">
   <div class="ticker-board">
-    <div class="ticker-label"><span>XAU / USD &middot; Spot (TradingView)</span></div>
+    <div class="ticker-label"><span>XAU / USD &middot; Live Chart (TradingView)</span></div>
     <div class="tradingview-widget-container" id="tv-widget-container" style="margin-top:6px; border-radius:12px; overflow:hidden;">
       <div class="tradingview-widget-container__widget"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-single-quote.js" async>
+      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
       {
+        "autosize": false,
+        "height": 440,
         "symbol": "OANDA:XAUUSD",
-        "width": "100%",
-        "isTransparent": true,
-        "colorTheme": "dark",
-        "locale": "en"
+        "interval": "60",
+        "timezone": "Asia/Kolkata",
+        "theme": "dark",
+        "style": "1",
+        "locale": "en",
+        "toolbar_bg": "#14171B",
+        "enable_publishing": false,
+        "hide_top_toolbar": false,
+        "hide_legend": false,
+        "save_image": true,
+        "allow_symbol_change": false,
+        "withdateranges": true,
+        "calendar": false,
+        "support_host": "https://www.tradingview.com"
       }
       </script>
+    </div>
+    <div class="empty-state" style="padding:8px 4px 0; text-align:left; font-size:10.5px;">
+      ✏️ वरच्या chart वर डावीकडच्या toolbar मधून trendline/drawing काढता येईल — ते आपोआप याच फोनवर save राहील.
     </div>
     <div class="ai-strip">
       <div class="ai-badge neutral" id="aiBadge">⏳ प्रलंबित</div>
       <div class="ai-text" id="aiText">Analysis साठी news आणि swing data गोळा होत आहे...</div>
     </div>
+  </div>
+
+  <div class="section-title">📍 अलीकडचे Swing Levels <span class="count" id="priceSwingCount">--</span></div>
+  <div id="priceSwingQuickList" style="margin-bottom:6px;">
+    <div class="empty-state" style="padding:14px 4px;">अजून स्विंग data जमा होत आहे — Tools tab मध्ये सविस्तर दिसेल.</div>
   </div>
 
   <div class="section-title">Breaking Gold News <span class="count" id="newsCount">--</span></div>
@@ -499,6 +519,6 @@
   <div class="nav-item"><div class="nav-icon">⚙</div>Tools</div>
 </nav>
 
-<script src="script.js?v=9"></script>
+<script src="script.js?v=10"></script>
 </body>
 </html>
