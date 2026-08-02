@@ -402,8 +402,7 @@
       }
       </script>
     </div>
-    <button id="openChartBtn" style="width:100%; margin-top:10px; background:var(--panel-2); border:1px solid var(--gold); color:var(--gold-soft); padding:10px; border-radius:9px; font-size:12.5px; font-weight:600;">📊 Full Chart बघा (drawing tools सकट)</button>
-    <button id="openTvLoginBtn" style="width:100%; margin-top:8px; background:var(--panel-2); border:1px solid var(--line); color:var(--sub); padding:9px; border-radius:9px; font-size:11.5px;">🔐 TradingView वर Login करा (experimental — कदाचित चालणार नाही)</button>
+    <button id="openChartBtn" style="width:100%; margin-top:10px; background:var(--panel-2); border:1px solid var(--gold); color:var(--gold-soft); padding:10px; border-radius:9px; font-size:12.5px; font-weight:600;">📊 TradingView Chart उघड (login/drawings सकट)</button>
     <div class="ai-strip">
       <div class="ai-badge neutral" id="aiBadge">⏳ प्रलंबित</div>
       <div class="ai-text" id="aiText">Analysis साठी news आणि swing data गोळा होत आहे...</div>
@@ -430,22 +429,6 @@
   </div>
   <div class="tradingview-widget-container" id="fullChartWidget" style="flex:1; background:#0B0D10;">
     <div class="tradingview-widget-container__widget" style="height:100%;"></div>
-  </div>
-</div>
-
-<!-- TRADINGVIEW.COM LOGIN ATTEMPT MODAL (experimental — tradingview.com usually blocks
-     being framed elsewhere, so this shows a clear fallback if it fails) -->
-<div class="article-modal" id="tvLoginModal">
-  <div class="article-modal-bar">
-    <div class="article-modal-title">🔐 TradingView Login</div>
-    <button class="article-modal-close" id="tvLoginClose">✕</button>
-  </div>
-  <div style="flex:1; background:#fff; position:relative;">
-    <iframe id="tvLoginFrame" src="about:blank" style="width:100%; height:100%; border:none;"></iframe>
-    <div class="article-modal-fallback" id="tvLoginFallback" style="position:absolute; inset:0; background:var(--bg); display:none; flex-direction:column; align-items:center; justify-content:center; padding:30px; text-align:center; gap:14px;">
-      <div style="color:var(--text); font-size:13px; line-height:1.6;">⚠️ अपेक्षेप्रमाणेच — TradingView स्वतःच्या पूर्ण साईटला इथे उघडू देत नाहीये (त्यांचंच सुरक्षा-कारण).<br><br>त्याऐवजी वेगळ्या browser टॅबमध्ये उघडून login करा — तिथले drawings/indicators त्यांच्या cloud मध्ये save राहतील (आपल्या app च्या chart मध्ये मात्र दिसणार नाहीत).</div>
-      <a href="https://www.tradingview.com/chart/?symbol=OANDA:XAUUSD" target="_blank" rel="noopener" style="background:var(--gold); color:#181300; text-decoration:none; padding:10px 20px; border-radius:9px; font-weight:700; font-size:13px;">🔗 Browser मध्ये उघड</a>
-    </div>
   </div>
 </div>
 
@@ -551,6 +534,6 @@
   <div class="nav-item"><div class="nav-icon">⚙</div>Tools</div>
 </nav>
 
-<script src="script.js?v=12"></script>
+<script src="script.js?v=14"></script>
 </body>
 </html>
