@@ -67,19 +67,23 @@ async function main(){
     }
   }
 
-  // ---- 2. Server-side swing (H4/Daily-style) detection ----
+  // ---- 2. Server-side swing (genuinely H4-style) detection ----
   // Runs every 5 min regardless of any phone being open — builds real swing
   // history in shared Firebase data so the app just displays it.
   //
-  // NOTE: MIN_AMPLITUDE was previously $8, which requires a single 5-min
-  // tick to beat ALL 8 neighboring ticks by $8 — gold usually only moves
-  // $1-5 per 5-min tick in normal conditions, so that threshold was rarely
-  // (if ever) met, which is why swingLevels stayed empty. Lowered to $4,
-  // and N (confirmation window) lowered slightly so levels form faster too.
-  const N = 3;                // neighbors each side to confirm a swing point
-  const MIN_AMPLITUDE = 4;    // $ — must beat every neighbor by this much
-  const DEDUPE_GAP = 12;      // $ — treat close levels as the same zone
-  const MAX_HISTORY = 500;    // cap stored price ticks (~ a few days at 5 min/tick)
+  // PREVIOUS VERSION OF THIS CODE was checking raw 5-min ticks directly for
+  // local highs/lows — that's an M5-style swing, not H4, even though the
+  // app's tagline says "H4/Daily style". Fixed here: ticks are first grouped
+  // into 4-hour candles (Open/High/Low/Close per 4h bucket), and swings are
+  // now detected on the candle-level High/Low sequence — that's what makes
+  // this a real H4 swing instead of 5-min noise. This needs more history to
+  // build up before the first swing appears (at least a few days), which is
+  // expected and correct for a genuinely H4-scale signal.
+  const H4_BUCKET_MS = 4 * 60 * 60 * 1000; // 4 hours
+  const H4_N = 2;              // candles each side to confirm a swing point (= 8h each side)
+  const H4_MIN_AMPLITUDE = 6;  // $ — must beat every neighboring candle's high/low by this much
+  const DEDUPE_GAP = 12;       // $ — treat close levels as the same zone
+  const MAX_HISTORY = 2016;    // ~7 days of 5-min ticks — enough for several days of H4 candles
   const MAX_SWINGS = 20;
 
   const histSnap = await db.ref('priceHistory').once('value');
@@ -88,35 +92,49 @@ async function main(){
   if(history.length > MAX_HISTORY) history = history.slice(history.length - MAX_HISTORY);
   await db.ref('priceHistory').set(history);
 
-  console.log(`priceHistory length: ${history.length} (need >= ${2 * N + 1} to start checking for swings)`);
+  const h4Buckets = {};
+  for(const tick of history){
+    const key = Math.floor(tick.t / H4_BUCKET_MS);
+    if(!h4Buckets[key]) h4Buckets[key] = [];
+    h4Buckets[key].push(tick);
+  }
+  const h4Keys = Object.keys(h4Buckets).map(Number).sort((a,b)=>a-b);
+  const h4Candles = h4Keys.map(k=>{
+    const ticks = h4Buckets[k].sort((a,b)=>a.t-b.t);
+    const prices = ticks.map(t=>t.price);
+    return { t: k * H4_BUCKET_MS, high: Math.max(...prices), low: Math.min(...prices) };
+  });
 
-  const idx = history.length - 1 - N;
-  if(idx >= N){
-    const point = history[idx];
-    const neighbors = [...history.slice(idx - N, idx), ...history.slice(idx + 1, idx + 1 + N)];
-    const isHigh = neighbors.every(p => point.price > p.price + MIN_AMPLITUDE);
-    const isLow = neighbors.every(p => point.price < p.price - MIN_AMPLITUDE);
+  console.log(`priceHistory ticks: ${history.length}  |  H4 candles built: ${h4Candles.length} (need >= ${2 * H4_N + 1} to start checking for swings)`);
 
-    console.log(`Checking candidate point (idx ${idx}, price ${point.price}): isHigh=${isHigh}, isLow=${isLow}`);
+  const idx = h4Candles.length - 1 - H4_N;
+  if(idx >= H4_N){
+    const candle = h4Candles[idx];
+    const neighbors = [...h4Candles.slice(idx - H4_N, idx), ...h4Candles.slice(idx + 1, idx + 1 + H4_N)];
+    const isHigh = neighbors.every(c => candle.high > c.high + H4_MIN_AMPLITUDE);
+    const isLow = neighbors.every(c => candle.low < c.low - H4_MIN_AMPLITUDE);
+
+    console.log(`Checking H4 candle (idx ${idx}, high ${candle.high}, low ${candle.low}): isHigh=${isHigh}, isLow=${isLow}`);
 
     if(isHigh || isLow){
       const type = isHigh ? 'high' : 'low';
+      const value = isHigh ? candle.high : candle.low;
       const swingSnap = await db.ref('swingLevels').once('value');
       let swings = swingSnap.val() || [];
-      const duplicate = swings.find(s => s.type === type && Math.abs(s.value - point.price) <= DEDUPE_GAP);
+      const duplicate = swings.find(s => s.type === type && Math.abs(s.value - value) <= DEDUPE_GAP);
       if(!duplicate){
-        swings.push({ type, value: point.price, time: point.t });
+        swings.push({ type, value, time: candle.t });
         swings.sort((a,b) => b.time - a.time);
         if(swings.length > MAX_SWINGS) swings = swings.slice(0, MAX_SWINGS);
         await db.ref('swingLevels').set(swings);
-        console.log('New server-side swing detected:', type, point.price);
+        console.log('New H4 swing detected:', type, value);
 
         // Notify every device that has swing alerts enabled
         const tokens = Object.values(devices)
           .filter(d => d.swingEnabled && d.token)
           .map(d => d.token);
         if(tokens.length){
-          const body = `Naya swing ${type === 'high' ? 'high' : 'low'} tayar zala: ${point.price.toFixed(2)}`;
+          const body = `Naya H4 swing ${type === 'high' ? 'high' : 'low'} tayar zala: ${value.toFixed(2)}`;
           try{
             await admin.messaging().sendEachForMulticast({
               tokens,
@@ -171,6 +189,78 @@ async function main(){
     }
   }catch(e){
     console.warn('Liquidity zone check failed (non-fatal):', e.message);
+  }
+
+  // ---- 4. Basic candle pattern detection (built from aggregated price ticks) ----
+  // We don't have a real OHLC data feed — only the raw 5-min price ticks in
+  // `history` from section 2. So we build approximate hourly candles by
+  // grouping ticks into 1-hour buckets (Open = first tick, Close = last
+  // tick, High/Low = max/min in that hour), then check the last two
+  // candles for two well-known, mechanically simple patterns: engulfing and
+  // doji. This is an approximation, not a real broker candle feed — the app
+  // says so wherever it's shown.
+  try{
+    const CANDLE_BUCKET_MS = 60 * 60 * 1000; // 1 hour
+    const buckets = {};
+    for(const tick of history){
+      const bucketKey = Math.floor(tick.t / CANDLE_BUCKET_MS);
+      if(!buckets[bucketKey]) buckets[bucketKey] = [];
+      buckets[bucketKey].push(tick);
+    }
+    const sortedKeys = Object.keys(buckets).map(Number).sort((a,b)=>a-b);
+    const candles = sortedKeys.map(k=>{
+      const ticks = buckets[k].sort((a,b)=>a.t-b.t);
+      const prices = ticks.map(t=>t.price);
+      return {
+        t: k * CANDLE_BUCKET_MS,
+        open: ticks[0].price,
+        close: ticks[ticks.length-1].price,
+        high: Math.max(...prices),
+        low: Math.min(...prices)
+      };
+    });
+
+    if(candles.length >= 2){
+      const prev = candles[candles.length - 2];
+      const curr = candles[candles.length - 1];
+      let pattern = null;
+
+      const prevBody = Math.abs(prev.close - prev.open);
+      const currBody = Math.abs(curr.close - curr.open);
+      const currRange = curr.high - curr.low;
+
+      // Bullish engulfing: prev candle red, curr candle green and its body
+      // fully covers (engulfs) the previous candle's body.
+      if(prev.close < prev.open && curr.close > curr.open &&
+         curr.open <= prev.close && curr.close >= prev.open){
+        pattern = { type: 'bullish_engulfing', label: 'Bullish Engulfing' };
+      }
+      // Bearish engulfing: mirror of the above.
+      else if(prev.close > prev.open && curr.close < curr.open &&
+              curr.open >= prev.close && curr.close <= prev.open){
+        pattern = { type: 'bearish_engulfing', label: 'Bearish Engulfing' };
+      }
+      // Doji: open and close almost equal (body is a tiny fraction of the
+      // candle's total range) — signals indecision, not direction.
+      else if(currRange > 0 && currBody / currRange < 0.1){
+        pattern = { type: 'doji', label: 'Doji (indecision)' };
+      }
+
+      if(pattern){
+        await db.ref('lastCandlePattern').set({
+          ...pattern,
+          candleTime: curr.t,
+          detectedAt: Date.now()
+        });
+        console.log('Candle pattern detected:', pattern.label);
+      } else {
+        console.log('No notable candle pattern on the latest hourly candle.');
+      }
+    } else {
+      console.log(`Not enough hourly candles yet for pattern detection (have ${candles.length}, need 2).`);
+    }
+  }catch(e){
+    console.warn('Candle pattern detection failed (non-fatal):', e.message);
   }
 }
 
