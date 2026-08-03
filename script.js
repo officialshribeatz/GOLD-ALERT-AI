@@ -473,7 +473,8 @@ if(document.getElementById('pushToggle')){
 /* ---------- NEWS (RSS via free proxy, no API key) ---------- */
 const NEWS_FEEDS = [
   { name:'Kitco News', url:'https://www.kitco.com/rss/KitcoNews.xml' },
-  { name:'FXStreet', url:'https://www.fxstreet.com/rss/news' }
+  { name:'FXStreet', url:'https://www.fxstreet.com/rss/news' },
+  { name:'DailyFX', url:'https://www.dailyfx.com/feeds/all' }
 ];
 
 // Latest fetched/tagged news items — read by the AI analysis badge to count
@@ -611,7 +612,7 @@ async function fetchNews(){
   // is coming in" even when fresh news is right there, just buried below.
   const PRIORITY_FRESHNESS_HOURS = 6;
   allItems.sort((a,b)=>{
-    const ageHours = (n)=> (Date.now() - new Date(n.pubDate).getTime()) / 3600000;
+    const ageHours = (n)=> (Date.now() - parseFeedDate(n.pubDate)) / 3600000;
     const rank = (n)=>{
       const fresh = ageHours(n) <= PRIORITY_FRESHNESS_HOURS;
       if(!fresh) return 3; // treat as a plain headline once it's stale, regardless of tag
@@ -619,7 +620,7 @@ async function fetchNews(){
     };
     const ra = rank(a), rb = rank(b);
     if(ra !== rb) return ra - rb;
-    return new Date(b.pubDate) - new Date(a.pubDate);
+    return parseFeedDate(b.pubDate) - parseFeedDate(a.pubDate);
   });
 
   if(allItems.length === 0){
@@ -665,7 +666,11 @@ async function fetchNews(){
   // Push a notification for NEW important headlines only (so it works even
   // if the phone/app is closed at the moment it's checked via the 5-min interval).
   const notified = getNotifiedImportantSet();
-  const newsworthy = allItems.filter(n => (n.important || n.goldBullish || n.goldBearish) && !notified.has(n.title));
+  const newsworthy = allItems.filter(n =>
+    (n.important || n.goldBullish || n.goldBearish) &&
+    !notified.has(n.title) &&
+    (Date.now() - parseFeedDate(n.pubDate)) / 3600000 <= PRIORITY_FRESHNESS_HOURS
+  );
   if(newsworthy.length && Notification.permission === 'granted'){
     newsworthy.forEach(n=>{
       const title = n.goldBullish ? '📈 Gold Alert AI — GOLD बुलिश न्यूज'
@@ -734,9 +739,24 @@ function escapeHtml(str){
   return div.innerHTML;
 }
 
+// Some feeds (e.g. DailyFX) sometimes give a date string with no explicit
+// timezone marker. When that happens, treat it as UTC — the safe assumption
+// for RSS feeds — instead of letting the browser guess (which caused a
+// ~5.5h IST misparse, making brand-new articles look hours old).
+function parseFeedDate(dateStr){
+  if(!dateStr) return NaN;
+  let s = String(dateStr).trim();
+  const hasTimezone = /Z$|[+-]\d{2}:?\d{2}$|GMT|UTC$/i.test(s);
+  if(!hasTimezone && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(s)){
+    s = s.replace(' ', 'T');
+    if(!s.endsWith('Z')) s += 'Z';
+  }
+  return new Date(s).getTime();
+}
+
 function timeAgo(dateStr){
   if(!dateStr) return '';
-  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const diffMs = Date.now() - parseFeedDate(dateStr);
   const mins = Math.floor(diffMs/60000);
   if(mins < 60) return `${mins} min आधी`;
   const hrs = Math.floor(mins/60);
@@ -761,33 +781,11 @@ document.getElementById('refreshNewsBtn')?.addEventListener('click', async ()=>{
 setInterval(fetchNews, 5*60*1000); // refresh every 5 min
 
 /* ---------- ECONOMIC CALENDAR ----------
-   Phase 1: curated static list of recurring high-impact USD events.
-   Phase 2 मध्ये आपण हे लाईव्ह calendar API ला जोडू (उदा. TradingEconomics / ForexFactory).
+   Now a live TradingView Economic Calendar widget embedded directly in
+   index.html — no JS needed here anymore, same pattern as the price/chart
+   widgets elsewhere in the app.
 ------------------------------------------ */
-const CALENDAR_EVENTS = [
-  { time:'Weekly', title:'Initial Jobless Claims', sub:'दर गुरुवारी, 6:00 PM IST', impact:'med' },
-  { time:'Monthly', title:'CPI (Inflation Data)', sub:'महिन्याच्या मध्यात, 6:00 PM IST', impact:'high' },
-  { time:'Monthly', title:'NFP (Non-Farm Payrolls)', sub:'पहिला शुक्रवार, 6:00 PM IST', impact:'high' },
-  { time:'Monthly', title:'PPI (Producer Price Index)', sub:'CPI नंतर 1-2 दिवसांनी', impact:'med' },
-  { time:'6-weekly', title:'FOMC Rate Decision', sub:'Fed meeting, रात्री 11:30 PM IST', impact:'high' },
-  { time:'Varies', title:'Powell Speech', sub:'FOMC नंतर press conference', impact:'high' },
-];
 
-function renderCalendar(){
-  const calEl = document.getElementById('calList');
-  calEl.innerHTML = CALENDAR_EVENTS.map(ev => `
-    <div class="cal-card">
-      <div class="cal-time mono">${ev.time}</div>
-      <div class="cal-impact impact-${ev.impact}"></div>
-      <div class="cal-body">
-        <div class="cal-title">${ev.title}</div>
-        <div class="cal-sub">${ev.sub}</div>
-      </div>
-    </div>
-  `).join('') + `<div class="empty-state">🔜 Live exact date/time calendar Phase 2 मध्ये जोडू</div>`;
-}
-
-renderCalendar();
 
 /* ---------- SERVICE WORKER REGISTER (PWA) ----------
    Installed "Add to Home Screen" apps behave differently from the site
