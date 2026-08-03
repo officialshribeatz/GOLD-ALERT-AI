@@ -603,9 +603,20 @@ async function fetchNews(){
     n.important = !n.goldBullish && !n.goldBearish && isHighImpactNews(n.title);
   });
 
-  // sort: gold-bullish first, then gold-bearish, then high-impact, then newest first within each group
+  // sort: gold-bullish first, then gold-bearish, then high-impact, then newest first within each group.
+  // IMPORTANT: a tag only earns the "pin to top" boost if the headline is
+  // still fairly fresh (within 6 hours). Without this, a 10-hour-old
+  // high-impact headline would permanently sit above brand-new plain
+  // headlines just because of its tag — making it look like "nothing new
+  // is coming in" even when fresh news is right there, just buried below.
+  const PRIORITY_FRESHNESS_HOURS = 6;
   allItems.sort((a,b)=>{
-    const rank = (n)=> n.goldBullish ? 0 : (n.goldBearish ? 1 : (n.important ? 2 : 3));
+    const ageHours = (n)=> (Date.now() - new Date(n.pubDate).getTime()) / 3600000;
+    const rank = (n)=>{
+      const fresh = ageHours(n) <= PRIORITY_FRESHNESS_HOURS;
+      if(!fresh) return 3; // treat as a plain headline once it's stale, regardless of tag
+      return n.goldBullish ? 0 : (n.goldBearish ? 1 : (n.important ? 2 : 3));
+    };
     const ra = rank(a), rb = rank(b);
     if(ra !== rb) return ra - rb;
     return new Date(b.pubDate) - new Date(a.pubDate);
