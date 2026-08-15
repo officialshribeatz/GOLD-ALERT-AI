@@ -473,6 +473,7 @@
   <div class="empty-state" id="bbTrapNote" style="padding:10px 4px; text-align:left;">
     1H candles वर 20-period Bollinger Bands वापरून शोधलं जातं — candle पूर्णपणे band च्या बाहेर तयार होतो (Alert Candle), मग पुढच्या candle ने त्याचा High/Low तोडला की entry+target इथे दिसेल. VWAP नाही, फक्त 20 SMA वापरलंय.
   </div>
+  <button id="clearBBTrapBtn" style="width:100%; background:var(--panel); border:1px solid var(--line); color:var(--sub); padding:10px; border-radius:9px; font-size:12px; margin-bottom:14px;">🗑️ जुना 1H Data पुसून टाक</button>
   <div id="bbTrapPendingCard"></div>
   <div id="bbTrapCard"></div>
 
@@ -480,6 +481,7 @@
   <div class="empty-state" id="bbTrap15mNote" style="padding:10px 4px; text-align:left;">
     हाच logic, पण 15-मिनिटांच्या candles वर — जास्त वेळा signal येऊ शकतात, पण noise पण जास्त असू शकतो. मोठ्या timeframe (1H) सोबत ताळमेळ बघून वापरा.
   </div>
+  <button id="clearBBTrap15mBtn" style="width:100%; background:var(--panel); border:1px solid var(--line); color:var(--sub); padding:10px; border-radius:9px; font-size:12px; margin-bottom:14px;">🗑️ जुना 15m Data पुसून टाक</button>
   <div id="bbTrap15mPendingCard"></div>
   <div id="bbTrap15mCard"></div>
 </section>
@@ -609,6 +611,6 @@
   <div class="nav-item"><div class="nav-icon">⚙</div>Tools</div>
 </nav>
 
-<script src="script.js?v=27"></script>
+<script src="script.js?v=28"></script>
 </body>
 </html>
