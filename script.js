@@ -31,8 +31,6 @@ navItems.forEach((item, idx)=>{
 });
 
 /* ---------- SHARED: multi-proxy fetch (tries several free CORS proxies in order) ---------- */
-// Wraps fetch with a hard timeout so one slow/dead proxy can't hang the whole
-// refresh — after `ms` milliseconds it aborts and we move to the next proxy.
 async function fetchWithTimeout(url, ms){
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(), ms);
@@ -55,7 +53,6 @@ async function fetchWithFallback(targetUrl){
       const res = await fetchWithTimeout(proxies[i](targetUrl), 6000);
       if(!res.ok) throw new Error('status '+res.status);
       const text = await res.text();
-      // allorigins /get wraps response in {"contents": "..."}
       if(i === 2){
         const wrapped = JSON.parse(text);
         return wrapped.contents;
@@ -68,12 +65,6 @@ async function fetchWithFallback(targetUrl){
   }
   throw lastErr;
 }
-
-/* ---------- LIVE GOLD PRICE ----------
-   Now rendered by an embedded TradingView widget directly in index.html —
-   this guarantees the price matches TradingView exactly since it's the
-   same live data feed, not a separate free API.
------------------------------------------- */
 
 /* ---------- PRICE ALERTS ---------- */
 const ALERT_STORAGE_KEY = 'goldAlertAI_alerts';
@@ -163,9 +154,6 @@ function syncAlertsToFirebaseIfEnabled(){
   }
 }
 
-// Mobile Chrome requires showNotification() via an active service worker registration
-// once a page has a controlling SW — the old `new Notification()` constructor throws.
-// This wraps that safely so a notification failure never blocks the alert/UI update.
 async function safeNotify(title, options){
   try{
     if('serviceWorker' in navigator){
@@ -203,7 +191,6 @@ function checkAlerts(price){
   }
 }
 
-// Silent background price polling — purely to check alerts, TradingView widget handles the visible display
 let lastKnownPrice = null;
 
 async function pollPriceForAlerts(){
@@ -224,12 +211,9 @@ async function pollPriceForAlerts(){
 renderAlerts();
 setInterval(pollPriceForAlerts, 5000);
 
-/* ---------- LIQUIDITY ZONE ALERTS ----------
-   Uses day high/low as a stand-in for liquidity pools (ICT/SMC concept) —
-   real broker liquidation data isn't publicly available for gold.
------------------------------------------- */
+/* ---------- LIQUIDITY ZONE ALERTS ---------- */
 const LIQ_STORAGE_KEY = 'goldAlertAI_liqEnabled';
-const LIQ_PROXIMITY = 2.5; // notify when price comes within this many $ of day high/low
+const LIQ_PROXIMITY = 2.5;
 
 let dayHigh = null, dayLow = null;
 let liqNotifiedHigh = false, liqNotifiedLow = false;
@@ -287,7 +271,7 @@ function checkLiquidityZones(price){
     liqNotifiedHigh = true;
     notifyLiq(`🎯 Buy-side liquidity जवळ! Price (${price.toFixed(2)}) day high (${dayHigh.toFixed(2)}) जवळ आलं — reversal/sweep संभव.`);
   } else if(!nearHigh){
-    liqNotifiedHigh = false; // reset so it can fire again if it revisits later
+    liqNotifiedHigh = false;
   }
 
   if(nearLow && !liqNotifiedLow){
@@ -307,14 +291,10 @@ function notifyLiq(msg){
 
 updateLiqInfo();
 fetchDayHighLowForLiq();
-setInterval(fetchDayHighLowForLiq, 30000); // day high/low doesn't need to refresh often
+setInterval(fetchDayHighLowForLiq, 30000);
 
-/* ---------- SWING LEVELS (server-side, GitHub Actions computed) ----------
-   All detection now happens on the GitHub Actions server every 5 min,
-   independent of any device being open. This just displays what the
-   server has found, pulled from Firebase Realtime Database.
------------------------------------------- */
-const SWING_DEDUPE_GAP = 15; // $ — kept for display/merge purposes
+/* ---------- SWING LEVELS (server-side, GitHub Actions computed) ---------- */
+const SWING_DEDUPE_GAP = 15;
 const SWING_MAX_STORED = 12;
 
 let swingLevels = [];
@@ -342,9 +322,6 @@ function renderSwingLevels(){
     }
   }
 
-  // Compact version near the chart on the Price tab — just the 4 most
-  // recent levels, so people can eyeball them against the chart above
-  // without needing to switch to the Tools tab.
   if(quickEl){
     if(swingLevels.length === 0){
       quickEl.innerHTML = `<div class="empty-state" style="padding:14px 4px;">अजून स्विंग data जमा होत आहे — Tools tab मध्ये सविस्तर दिसेल.</div>`;
@@ -369,9 +346,78 @@ document.getElementById('clearSwingBtn')?.addEventListener('click', ()=>{
   renderSwingLevels();
 });
 
-// Pull server-side swings (computed by GitHub Actions every 5 min) — this is
-// what makes levels show up even after the app was closed the whole time.
 let lastCandlePattern = null;
+let lastBBTrapSignal = null;
+let lastBBTrapSignal15m = null;
+let lastBBTrapPending = null;
+let lastBBTrapPending15m = null;
+
+/* ---------- BB TRAP: PENDING Alert Candle (not yet confirmed/invalidated) ----------
+   Shown separately from the confirmed signal — this is "an Alert Candle has
+   formed and we're watching whether its Low/High gets broken", live, before
+   any entry actually exists yet.
+------------------------------------------ */
+function renderBBTrapPendingInto(elId, pending){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  if(!pending){
+    el.innerHTML = '';
+    return;
+  }
+  const isBullish = pending.type === 'bullish';
+  el.innerHTML = `
+    <div class="bb-trap-card pending">
+      <div class="bb-trap-badge pending">👀 WATCHING — Alert Candle तयार झालाय</div>
+      <div class="risk-result-row"><span>दिशा</span><span>${isBullish ? 'Bullish (Buy) संभाव्य' : 'Bearish (Sell) संभाव्य'}</span></div>
+      <div class="risk-result-row"><span>Alert Candle High</span><span>${pending.alertHigh.toFixed(2)}</span></div>
+      <div class="risk-result-row"><span>Alert Candle Low</span><span>${pending.alertLow.toFixed(2)}</span></div>
+      <div class="risk-result-row"><span>Watch Entry (${isBullish ? 'High तुटला की' : 'Low तुटला की'})</span><span>${pending.watchEntryPrice.toFixed(2)}</span></div>
+      <div class="risk-result-row"><span>Alert Candle वेळ</span><span>${new Date(pending.alertCandleTime).toLocaleString('en-IN', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</span></div>
+    </div>
+    <div class="empty-state" style="padding:6px 4px 4px; text-align:left; font-size:10.5px;">
+      ⚠️ अजून entry झालेली नाही — फक्त watch करतोय. ${isBullish ? 'High' : 'Low'} तुटला की खरा signal येईल; उलट दिशेने तुटलं तर हा trap रद्द होईल.
+    </div>
+  `;
+}
+
+/* ---------- BB TRAP SIGNAL (server-side, Bollinger Band trap) ----------
+   Renders whatever check-alerts.js last stored in Firebase — both a 1H
+   node (`bbTrapSignal`) and a 15m node (`bbTrapSignal15m`), each an Alert
+   Candle that formed fully outside a 20-period Bollinger Band, plus the
+   later candle that broke its Low/High (entry), target = 20 SMA at that
+   moment. VWAP is intentionally not part of this — 20 SMA is used
+   throughout instead, so this is an approximation, not a guarantee.
+------------------------------------------ */
+function renderBBTrapInto(elId, signal){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  if(!signal){
+    el.innerHTML = `<div class="empty-state" style="padding:14px 4px;">सध्या कुठलाही active BB Trap signal नाही.</div>`;
+    return;
+  }
+  const isBullish = signal.type === 'bullish';
+  el.innerHTML = `
+    <div class="bb-trap-card ${isBullish ? 'bullish' : 'bearish'}">
+      <div class="bb-trap-badge ${isBullish ? 'bullish' : 'bearish'}">${isBullish ? '📈 BULLISH TRAP — BUY' : '📉 BEARISH TRAP — SELL'}</div>
+      <div class="risk-result-row"><span>Alert Candle High</span><span>${signal.alertHigh.toFixed(2)}</span></div>
+      <div class="risk-result-row"><span>Alert Candle Low</span><span>${signal.alertLow.toFixed(2)}</span></div>
+      <div class="risk-result-row"><span>Entry Price</span><span>${signal.entryPrice.toFixed(2)}</span></div>
+      <div class="risk-result-row"><span>Target (20 SMA)</span><span>${signal.target.toFixed(2)}</span></div>
+      <div class="risk-result-row"><span>Alert Candle वेळ</span><span>${new Date(signal.alertCandleTime).toLocaleString('en-IN', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</span></div>
+      <div class="risk-result-row"><span>Trigger वेळ</span><span>${new Date(signal.triggerCandleTime).toLocaleString('en-IN', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</span></div>
+    </div>
+    <div class="empty-state" style="padding:8px 4px 4px; text-align:left; font-size:10.5px;">
+      ⚠️ VWAP नाही, फक्त 20 SMA वापरलंय — मूळ strategy चा approximate आहे. Stoploss स्वतः ठरवा (उदा. day high/low वर).
+    </div>
+  `;
+}
+
+function renderBBTrap(){
+  renderBBTrapPendingInto('bbTrapPendingCard', lastBBTrapPending);
+  renderBBTrapPendingInto('bbTrap15mPendingCard', lastBBTrapPending15m);
+  renderBBTrapInto('bbTrapCard', lastBBTrapSignal);
+  renderBBTrapInto('bbTrap15mCard', lastBBTrapSignal15m);
+}
 
 async function fetchServerSwings(){
   if(typeof firebaseConfig === 'undefined' || firebaseConfig.apiKey === 'YOUR_API_KEY') return;
@@ -389,25 +435,58 @@ async function fetchServerSwings(){
     const res2 = await fetch(firebaseConfig.databaseURL + '/lastCandlePattern.json');
     const pattern = await res2.json();
     if(pattern && pattern.type){
-      // only treat it as "current" if detected within the last ~2 hours —
-      // an old stale pattern shouldn't keep influencing the signal forever
       const isFresh = (Date.now() - (pattern.detectedAt || 0)) < 2 * 60 * 60 * 1000;
       lastCandlePattern = isFresh ? pattern : null;
     }
   }catch(e){
     console.warn('Server candle pattern fetch failed (non-fatal):', e);
   }
+  try{
+    const res3 = await fetch(firebaseConfig.databaseURL + '/bbTrapSignal.json');
+    const trap = await res3.json();
+    if(trap && trap.type){
+      const isFresh = (Date.now() - (trap.detectedAt || 0)) < 12 * 60 * 60 * 1000;
+      lastBBTrapSignal = isFresh ? trap : null;
+    } else {
+      lastBBTrapSignal = null;
+    }
+  }catch(e){
+    console.warn('Server BB Trap (1H) fetch failed (non-fatal):', e);
+  }
+  try{
+    const res4 = await fetch(firebaseConfig.databaseURL + '/bbTrapSignal15m.json');
+    const trap15 = await res4.json();
+    if(trap15 && trap15.type){
+      // 15m signals go stale faster — shorter freshness window than 1H
+      const isFresh = (Date.now() - (trap15.detectedAt || 0)) < 3 * 60 * 60 * 1000;
+      lastBBTrapSignal15m = isFresh ? trap15 : null;
+    } else {
+      lastBBTrapSignal15m = null;
+    }
+  }catch(e){
+    console.warn('Server BB Trap (15m) fetch failed (non-fatal):', e);
+  }
+  try{
+    const res5 = await fetch(firebaseConfig.databaseURL + '/bbTrapSignalPending.json');
+    const p1 = await res5.json();
+    lastBBTrapPending = (p1 && p1.type) ? p1 : null;
+  }catch(e){
+    console.warn('Server BB Trap pending (1H) fetch failed (non-fatal):', e);
+  }
+  try{
+    const res6 = await fetch(firebaseConfig.databaseURL + '/bbTrapSignal15mPending.json');
+    const p2 = await res6.json();
+    lastBBTrapPending15m = (p2 && p2.type) ? p2 : null;
+  }catch(e){
+    console.warn('Server BB Trap pending (15m) fetch failed (non-fatal):', e);
+  }
+  renderBBTrap();
   updateAIAnalysis();
 }
 fetchServerSwings();
-setInterval(fetchServerSwings, 5 * 60 * 1000); // refresh from server every 5 min
+setInterval(fetchServerSwings, 5 * 60 * 1000);
 
-/* ---------- FIREBASE PUSH NOTIFICATIONS (Phase 2) ----------
-   Works even when the app/tab is closed or phone is locked, unlike the
-   in-browser Notification API used elsewhere in this file.
-   A GitHub Actions cron job checks prices every 5 min and sends pushes
-   via the Firebase Admin SDK using data stored here in Realtime Database.
------------------------------------------- */
+/* ---------- FIREBASE PUSH NOTIFICATIONS ---------- */
 let fcmApp = null, fcmMessaging = null, fcmDb = null, deviceId = null;
 
 function getOrCreateDeviceId(){
@@ -455,7 +534,6 @@ function syncAlertsToFirebase(){
   fcmDb.ref('alerts/' + deviceId).set(activeAlerts).catch(e => console.warn('Alert sync failed', e));
 }
 
-// Enable push notifications toggle handling
 document.getElementById('pushToggle')?.addEventListener('change', async (e)=>{
   if(e.target.checked){
     await initPushNotifications();
@@ -477,11 +555,8 @@ const NEWS_FEEDS = [
   { name:'DailyFX', url:'https://www.dailyfx.com/feeds/all' }
 ];
 
-// Latest fetched/tagged news items — read by the AI analysis badge to count
-// how many recent headlines were tagged gold-bullish vs gold-bearish.
 let lastFetchedNewsItems = [];
 
-// Keywords that mean specifically BAD news for gold's own price (bearish for gold).
 const GOLD_BEARISH_KEYWORDS = [
   'gold falls', 'gold drops', 'gold slides', 'gold slips', 'gold plunges',
   'gold tumbles', 'gold sinks', 'gold retreats', 'gold declines', 'gold slumps',
@@ -493,9 +568,6 @@ const GOLD_BEARISH_KEYWORDS = [
   'gold price forecast cut', 'gold price forecast lowered', 'profit-taking in gold'
 ];
 
-// Keywords that mean specifically GOOD news for gold's own price (bullish for gold) —
-// separate from generic high-impact/volatility keywords below, so these get their
-// own distinct green badge instead of the red high-impact one.
 const GOLD_BULLISH_KEYWORDS = [
   'gold hits record', 'gold record high', 'gold surges', 'gold soars',
   'gold rallies', 'gold climbs', 'gold jumps', 'gold gains', 'gold rises',
@@ -506,8 +578,6 @@ const GOLD_BULLISH_KEYWORDS = [
   'gold breaks', 'gold hits new high', 'gold hits fresh high'
 ];
 
-// Keywords that usually mean "this news can move gold price hard / high volatility"
-// but aren't necessarily good news specifically for gold (could be either direction).
 const HIGH_IMPACT_KEYWORDS = [
   'fed', 'fomc', 'powell', 'rate cut', 'rate hike', 'interest rate',
   'cpi', 'nfp', 'non-farm', 'inflation', 'recession', 'gdp',
@@ -534,26 +604,20 @@ function isHighImpactNews(title){
   return HIGH_IMPACT_KEYWORDS.some(k => t.includes(k));
 }
 
-// Tracks which high-impact headlines we've already notified about, so the
-// same story doesn't push a notification every 5-min refresh cycle.
 const NOTIFIED_IMPORTANT_KEY = 'goldAlertAI_notifiedImportantNews';
 function getNotifiedImportantSet(){
   try{ return new Set(JSON.parse(localStorage.getItem(NOTIFIED_IMPORTANT_KEY)) || []); }
   catch(e){ return new Set(); }
 }
 function saveNotifiedImportantSet(set){
-  // keep only the most recent 200 to avoid localStorage growing forever
   const arr = Array.from(set).slice(-200);
   localStorage.setItem(NOTIFIED_IMPORTANT_KEY, JSON.stringify(arr));
 }
 
-// Tracks whether we've EVER successfully shown news at least once — used so
-// a failed refresh doesn't wipe out news that's already on screen.
 let hasLoadedNewsOnce = false;
 
 async function fetchNews(){
   const listEl = document.getElementById('newsList');
-  // extra bottom padding so the last card isn't hidden half-behind the bottom nav bar
   listEl.style.paddingBottom = '90px';
   let allItems = [];
 
@@ -591,31 +655,20 @@ async function fetchNews(){
     }
   });
 
-  // filter roughly for gold-relevant keywords when feed isn't gold-specific
   allItems = allItems.filter(n => n.title && n.title.length > 5);
 
-  // tag high-impact / gold-bullish / gold-bearish items — the gold-specific
-  // categories are checked first since they're more specific (a gold-bullish
-  // or bearish headline often also matches generic high-impact words like
-  // "record high"/"plunge", so we don't want double-badging)
   allItems.forEach(n => {
     n.goldBullish = isGoldBullishNews(n.title);
     n.goldBearish = !n.goldBullish && isGoldBearishNews(n.title);
     n.important = !n.goldBullish && !n.goldBearish && isHighImpactNews(n.title);
   });
 
-  // sort: gold-bullish first, then gold-bearish, then high-impact, then newest first within each group.
-  // IMPORTANT: a tag only earns the "pin to top" boost if the headline is
-  // still fairly fresh (within 6 hours). Without this, a 10-hour-old
-  // high-impact headline would permanently sit above brand-new plain
-  // headlines just because of its tag — making it look like "nothing new
-  // is coming in" even when fresh news is right there, just buried below.
   const PRIORITY_FRESHNESS_HOURS = 6;
   allItems.sort((a,b)=>{
     const ageHours = (n)=> (Date.now() - parseFeedDate(n.pubDate)) / 3600000;
     const rank = (n)=>{
       const fresh = ageHours(n) <= PRIORITY_FRESHNESS_HOURS;
-      if(!fresh) return 3; // treat as a plain headline once it's stale, regardless of tag
+      if(!fresh) return 3;
       return n.goldBullish ? 0 : (n.goldBearish ? 1 : (n.important ? 2 : 3));
     };
     const ra = rank(a), rb = rank(b);
@@ -624,9 +677,6 @@ async function fetchNews(){
   });
 
   if(allItems.length === 0){
-    // Only show the empty/error state the very first time (nothing on screen yet).
-    // If news is already showing from a previous successful load, leave it alone —
-    // a failed refresh (proxy rate-limited, etc.) shouldn't wipe the screen.
     if(!hasLoadedNewsOnce){
       listEl.innerHTML = `<div class="empty-state">News सध्या load होत नाहीये.<br>Network / proxy issue असू शकते.</div>`;
       document.getElementById('newsCount').textContent = '0';
@@ -635,7 +685,7 @@ async function fetchNews(){
   }
 
   hasLoadedNewsOnce = true;
-  lastFetchedNewsItems = allItems; // used by the AI analysis badge (news sentiment component)
+  lastFetchedNewsItems = allItems;
   document.getElementById('newsCount').textContent = allItems.length;
   const topItems = allItems.slice(0, 15);
 
@@ -651,20 +701,12 @@ async function fetchNews(){
     </div>
   `).join('');
 
-  // Tapping a card expands/collapses a short "key points" summary right
-  // there in the list — pulled from the RSS feed's own description field
-  // (the short excerpt publishers include for exactly this purpose), split
-  // into a few bullet points. No full article text, no leaving the app.
   listEl.querySelectorAll('.news-card').forEach((card, i) => {
     card.addEventListener('click', ()=> toggleKeyPoints(i, topItems[i].description));
   });
 
-  // Translate each headline to Marathi in the background (free MyMemory API, no key needed)
-  // staggered slightly so we don't fire 15 requests at once and trip rate limits
   topItems.forEach((n, i) => setTimeout(()=> translateToMarathi(n.title, i), i * 400));
 
-  // Push a notification for NEW important headlines only (so it works even
-  // if the phone/app is closed at the moment it's checked via the 5-min interval).
   const notified = getNotifiedImportantSet();
   const newsworthy = allItems.filter(n =>
     (n.important || n.goldBullish || n.goldBearish) &&
@@ -688,23 +730,16 @@ async function fetchNews(){
   updateAIAnalysis();
 }
 
-// MyMemory's free tier has a small daily quota. When it's exceeded, it
-// doesn't return an error — it returns its warning message wrapped as if it
-// were a normal translation. We detect that specific pattern and treat it
-// as a failure instead of displaying "MYMEMORY WARNING: ..." as a headline.
 function isValidTranslation(text){
   if(!text) return false;
   return !/mymemory warning|usagelimit|query length limit/i.test(text);
 }
 
-// Once we've confirmed the quota is exhausted, avoid firing dozens more
-// doomed requests (each headline + each key point would otherwise retry) —
-// just show English directly for the rest of the day.
 const TRANSLATE_QUOTA_KEY = 'goldAlertAI_translateQuotaHitAt';
 function isTranslateQuotaLikelyExceeded(){
   const t = localStorage.getItem(TRANSLATE_QUOTA_KEY);
   if(!t) return false;
-  return (Date.now() - parseInt(t, 10)) < 12 * 60 * 60 * 1000; // assume exhausted for 12h
+  return (Date.now() - parseInt(t, 10)) < 12 * 60 * 60 * 1000;
 }
 function markTranslateQuotaExceeded(){
   localStorage.setItem(TRANSLATE_QUOTA_KEY, Date.now().toString());
@@ -739,10 +774,6 @@ function escapeHtml(str){
   return div.innerHTML;
 }
 
-// Some feeds (e.g. DailyFX) sometimes give a date string with no explicit
-// timezone marker. When that happens, treat it as UTC — the safe assumption
-// for RSS feeds — instead of letting the browser guess (which caused a
-// ~5.5h IST misparse, making brand-new articles look hours old).
 function parseFeedDate(dateStr){
   if(!dateStr) return NaN;
   let s = String(dateStr).trim();
@@ -778,57 +809,30 @@ document.getElementById('refreshNewsBtn')?.addEventListener('click', async ()=>{
     btn.disabled = false;
   }, 2000);
 });
-setInterval(fetchNews, 5*60*1000); // refresh every 5 min
+setInterval(fetchNews, 5*60*1000);
 
-/* ---------- ECONOMIC CALENDAR ----------
-   Now a live TradingView Economic Calendar widget embedded directly in
-   index.html — no JS needed here anymore, same pattern as the price/chart
-   widgets elsewhere in the app.
------------------------------------------- */
-
-
-/* ---------- SERVICE WORKER REGISTER (PWA) ----------
-   Installed "Add to Home Screen" apps behave differently from the site
-   opened in Chrome: Chrome checks for a new sw.js on pretty much every
-   visit, but an installed/standalone app often only checks once every
-   24 hours on its own — that's why replacing files on GitHub showed up
-   immediately in Chrome but needed a full uninstall/reinstall in the
-   installed app. Fixing that here: explicitly force an update check the
-   moment the app opens (and again periodically while it stays open), and
-   auto-reload as soon as a new version takes control — so the installed
-   app updates itself just like the browser tab does, no reinstall needed.
------------------------------------------- */
+/* ---------- SERVICE WORKER REGISTER (PWA) ---------- */
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('sw.js')
       .then(reg=>{
-        reg.update(); // force a check right away instead of waiting for the browser's own (slow) schedule
-        setInterval(()=> reg.update(), 5 * 60 * 1000); // and keep re-checking every 5 min while the app is open
+        reg.update();
+        setInterval(()=> reg.update(), 5 * 60 * 1000);
       })
       .catch(e=>console.warn('SW register failed', e));
   });
 
-  // Once a newly-updated service worker takes over, auto-reload once so the
-  // person sees the new version immediately instead of the old cached page.
-  //
-  // IMPORTANT: a plain JS variable here resets to false on every reload, so
-  // if anything ever caused a second controllerchange in the same session
-  // (e.g. a flaky network briefly serving inconsistent files), the page would
-  // keep reloading itself forever — which is exactly the "page keeps auto
-  // refreshing" loop that happened. Using sessionStorage instead means the
-  // guard survives the reload itself, so it truly can only fire once per
-  // session. A fresh time-based throttle is added as a second safety net.
   const RELOAD_FLAG_KEY = 'goldAlertAI_swAutoReloadedAt';
   navigator.serviceWorker.addEventListener('controllerchange', ()=>{
     const last = sessionStorage.getItem(RELOAD_FLAG_KEY);
     const now = Date.now();
-    if(last && (now - parseInt(last, 10)) < 60000) return; // already reloaded in the last minute — never loop
+    if(last && (now - parseInt(last, 10)) < 60000) return;
     sessionStorage.setItem(RELOAD_FLAG_KEY, now.toString());
     window.location.reload();
   });
 }
 
-/* ---------- FORCE UPDATE (clears SW + caches without needing phone Settings) ---------- */
+/* ---------- FORCE UPDATE ---------- */
 document.getElementById('forceUpdateBtn')?.addEventListener('click', async ()=>{
   const btn = document.getElementById('forceUpdateBtn');
   btn.textContent = '⏳ Clean करत आहे...';
@@ -844,12 +848,10 @@ document.getElementById('forceUpdateBtn')?.addEventListener('click', async ()=>{
   }catch(e){
     console.warn('Force update cleanup failed:', e);
   }
-  // Hard reload with cache-buster so even the HTML itself is fetched fresh
   localStorage.setItem('goldAlertAI_justUpdated', '1');
   window.location.href = window.location.pathname + '?v=' + Date.now();
 });
 
-// Show a confirmation banner if we just came back from a Force Update
 if(localStorage.getItem('goldAlertAI_justUpdated') === '1'){
   localStorage.removeItem('goldAlertAI_justUpdated');
   window.addEventListener('DOMContentLoaded', ()=>{
@@ -861,16 +863,13 @@ if(localStorage.getItem('goldAlertAI_justUpdated') === '1'){
   });
 }
 
-/* ---------- INLINE KEY POINTS (expand a news card in place, no external page) ---------- */
+/* ---------- INLINE KEY POINTS ---------- */
 function stripHtml(html){
   const div = document.createElement('div');
   div.innerHTML = html || '';
   return div.textContent || div.innerText || '';
 }
 
-// Breaks the RSS feed's own short description/excerpt into a few clean
-// bullet points. This is the summary publishers already include in their
-// feed for exactly this kind of excerpt display — not the full article body.
 function extractKeyPoints(description){
   const clean = stripHtml(description).replace(/\s+/g,' ').trim();
   if(!clean) return [];
@@ -898,8 +897,6 @@ function toggleKeyPoints(i, description){
     box.innerHTML = `<div class="pts-empty">या बातमीसाठी अजून जास्त तपशील उपलब्ध नाही.</div>`;
   } else {
     box.innerHTML = `<ul>${points.map((p, j) => `<li id="pt-${i}-${j}">${escapeHtml(p)} <span style="color:var(--sub); font-size:10.5px;">(मराठी भाषांतर होत आहे...)</span></li>`).join('')}</ul>`;
-    // translate each point, staggered slightly to avoid hitting the free
-    // translate API's rate limit if the card has several points
     points.forEach((p, j) => setTimeout(()=> translatePoint(p, i, j), j * 300));
   }
   box.classList.add('open');
@@ -930,18 +927,8 @@ async function translatePoint(text, i, j){
   }
 }
 
-/* ---------- AI ANALYSIS BADGE (news sentiment + swing structure) ----------
-   This is a simple, transparent heuristic — NOT a guaranteed trading signal.
-   It combines two things we already compute elsewhere in this file:
-     1) News sentiment: how many currently-shown headlines got tagged
-        gold-bullish vs gold-bearish by the keyword lists above.
-     2) Swing structure: whether the most recent swing high/low is higher or
-        lower than the previous same-type swing (classic Higher-High /
-        Higher-Low = bullish structure, Lower-High / Lower-Low = bearish —
-        standard ICT/SMC market-structure reading).
-   Each contributes -1, 0, or +1; the two are added for a score from -2 to
-   +2, which maps to BULLISH / BEARISH / NEUTRAL. The reasoning behind the
-   label is always shown in Marathi under the badge so it's never a black box.
+/* ---------- AI ANALYSIS BADGE (news + swing + candle + BB Trap) ----------
+   Not a guaranteed trading signal — a transparent, explained heuristic.
 ------------------------------------------ */
 function updateAIAnalysis(){
   const bullishCount = lastFetchedNewsItems.filter(n => n.goldBullish).length;
@@ -962,7 +949,6 @@ function updateAIAnalysis(){
     }
   }
 
-  const score = newsSignal + swingSignal;
   let candleSignal = 0;
   let candleNote = 'अजून candle pattern data नाही';
   if(lastCandlePattern){
@@ -971,21 +957,30 @@ function updateAIAnalysis(){
     else if(lastCandlePattern.type === 'doji'){ candleSignal = 0; candleNote = 'Doji — indecision, स्पष्ट दिशा नाही'; }
   }
 
-  const totalScore = score + candleSignal;
+  let bbTrapSignalVal = 0;
+  let bbTrapNote = 'सध्या active BB Trap नाही';
+  if(lastBBTrapSignal){
+    bbTrapSignalVal = lastBBTrapSignal.type === 'bullish' ? 1 : -1;
+    bbTrapNote = `1H: ${lastBBTrapSignal.type === 'bullish' ? 'Bullish' : 'Bearish'} Trap — Entry ${lastBBTrapSignal.entryPrice.toFixed(2)}, Target ${lastBBTrapSignal.target.toFixed(2)}`;
+  }
+  if(lastBBTrapSignal15m){
+    bbTrapNote += lastBBTrapSignal ? ' · ' : '';
+    bbTrapNote += `15m: ${lastBBTrapSignal15m.type === 'bullish' ? 'Bullish' : 'Bearish'} Trap — Entry ${lastBBTrapSignal15m.entryPrice.toFixed(2)}, Target ${lastBBTrapSignal15m.target.toFixed(2)}`;
+  }
+
+  const totalScore = newsSignal + swingSignal + candleSignal + bbTrapSignalVal;
   let label, cls;
   if(totalScore >= 1){ label = '📈 BULLISH'; cls = 'up'; }
   else if(totalScore <= -1){ label = '📉 BEARISH'; cls = 'down'; }
   else { label = '➖ NEUTRAL'; cls = 'neutral'; }
 
-  const detail = `News: ${bullishCount} बुलिश / ${bearishCount} बेअरिश  ·  Swing: ${swingNote}  ·  Candle: ${candleNote}`;
+  const detail = `News: ${bullishCount} बुलिश / ${bearishCount} बेअरिश  ·  Swing: ${swingNote}  ·  Candle: ${candleNote}  ·  BB Trap: ${bbTrapNote}`;
 
-  // Update the compact badge on the Price tab
   const badge = document.getElementById('aiBadge');
   const text = document.getElementById('aiText');
   if(badge){ badge.textContent = label; badge.className = 'ai-badge ' + cls; }
   if(text){ text.innerHTML = `<b>अंदाजे संकेत</b> (गॅरंटी नाही) — ${detail}`; }
 
-  // Update the bigger version on the Analysis tab
   const bigBadge = document.getElementById('analysisBadgeBig');
   const detailText = document.getElementById('analysisDetailText');
   if(bigBadge){ bigBadge.textContent = label; bigBadge.className = 'ai-badge ' + cls; bigBadge.style.fontSize = '14px'; bigBadge.style.padding = '8px 14px'; }
@@ -993,20 +988,13 @@ function updateAIAnalysis(){
     detailText.innerHTML = `
       <div style="margin-bottom:6px;"><b style="color:var(--text);">News sentiment:</b> ${bullishCount} बुलिश headline, ${bearishCount} बेअरिश headline</div>
       <div style="margin-bottom:6px;"><b style="color:var(--text);">Swing structure:</b> ${swingNote}</div>
-      <div><b style="color:var(--text);">Candle pattern (1H, approximate):</b> ${candleNote}</div>
+      <div style="margin-bottom:6px;"><b style="color:var(--text);">Candle pattern (1H, approximate):</b> ${candleNote}</div>
+      <div><b style="color:var(--text);">BB Trap (1H, 20 SMA target):</b> ${bbTrapNote}</div>
     `;
   }
 }
 
-/* ---------- RISK & LOT SIZE CALCULATOR (Phase 3) ----------
-   Standard gold contract size = 100 troy oz per 1.0 lot (this is the
-   universal XAUUSD convention most brokers use — mini lot 0.1 = 10 oz,
-   micro lot 0.01 = 1 oz). So a $1 price move on 1.0 lot = $100 P/L.
-   Position sizing formula: lot size = risk amount ($) / (stop distance
-   ($) × 100). This keeps the loss on a stopped-out trade capped at
-   exactly the risk % the person chose, regardless of how wide their
-   stop loss is.
------------------------------------------- */
+/* ---------- RISK & LOT SIZE CALCULATOR ---------- */
 const GOLD_OZ_PER_STANDARD_LOT = 100;
 
 document.getElementById('calcRiskBtn')?.addEventListener('click', ()=>{
@@ -1047,8 +1035,6 @@ document.getElementById('calcRiskBtn')?.addEventListener('click', ()=>{
   const positionValue = lotSize * GOLD_OZ_PER_STANDARD_LOT * entry;
   const direction = stop < entry ? 'BUY (वर जाईल असं गृहीत धरून)' : 'SELL (खाली जाईल असं गृहीत धरून)';
 
-  // Round lot size DOWN to the nearest 0.01 — rounding up would risk more
-  // than the chosen percentage, which defeats the purpose of the calculator.
   const roundedLot = Math.floor(lotSize * 100) / 100;
 
   let lotWarning = '';
@@ -1074,13 +1060,7 @@ document.getElementById('calcRiskBtn')?.addEventListener('click', ()=>{
   `;
 });
 
-/* ---------- FULLSCREEN CHART MODAL ----------
-   The TradingView Advanced Chart widget is only injected into the DOM the
-   first time the person taps "Full Chart बघा" — not on every page load —
-   so the Price tab stays light and fast, and the chart's own drawing tools
-   (trendlines etc.) still work exactly the same and still auto-save in the
-   browser, since it's a fully separate real chart instance.
------------------------------------------- */
+/* ---------- FULLSCREEN CHART MODAL / TRADINGVIEW APP LINK ---------- */
 let fullChartLoaded = false;
 
 function loadFullChartWidgetIfNeeded(){
@@ -1115,12 +1095,5 @@ function loadFullChartWidgetIfNeeded(){
 }
 
 document.getElementById('openChartBtn')?.addEventListener('click', ()=>{
-  // Navigating (not opening a new tab) to TradingView's official chart link.
-  // If the TradingView native app is installed, Android's App Links system
-  // intercepts this and opens THAT app directly (with the person's own
-  // login, saved drawings, indicators — everything the embedded widget
-  // above can't offer). If the app isn't installed, this just opens
-  // TradingView's website instead. Either way, the phone's Back button
-  // returns to our app afterward, since this is normal cross-app navigation.
   window.location.href = 'https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD';
 });
