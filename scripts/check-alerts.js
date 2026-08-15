@@ -26,6 +26,31 @@ async function getGoldPrice(){
   return data.price;
 }
 
+// Shared helper: build hourly OHLC candles out of the raw 5-min price ticks.
+// Used by both the engulfing/doji pattern detector (Section 4) and the BB
+// Trap detector (Section 5), so both work off the exact same candle series.
+function buildHourlyCandles(history){
+  const CANDLE_BUCKET_MS = 60 * 60 * 1000; // 1 hour
+  const buckets = {};
+  for(const tick of history){
+    const bucketKey = Math.floor(tick.t / CANDLE_BUCKET_MS);
+    if(!buckets[bucketKey]) buckets[bucketKey] = [];
+    buckets[bucketKey].push(tick);
+  }
+  const sortedKeys = Object.keys(buckets).map(Number).sort((a,b)=>a-b);
+  return sortedKeys.map(k=>{
+    const ticks = buckets[k].sort((a,b)=>a.t-b.t);
+    const prices = ticks.map(t=>t.price);
+    return {
+      t: k * CANDLE_BUCKET_MS,
+      open: ticks[0].price,
+      close: ticks[ticks.length-1].price,
+      high: Math.max(...prices),
+      low: Math.min(...prices)
+    };
+  });
+}
+
 async function main(){
   const price = await getGoldPrice();
   console.log('Current gold price:', price);
@@ -191,41 +216,19 @@ async function main(){
     console.warn('Liquidity zone check failed (non-fatal):', e.message);
   }
 
-  // ---- 4. Basic candle pattern detection (built from aggregated price ticks) ----
-  // We don't have a real OHLC data feed — only the raw 5-min price ticks in
-  // `history` from section 2. So we build approximate hourly candles by
-  // grouping ticks into 1-hour buckets (Open = first tick, Close = last
-  // tick, High/Low = max/min in that hour), then check the last two
-  // candles for two well-known, mechanically simple patterns: engulfing and
-  // doji. This is an approximation, not a real broker candle feed — the app
-  // says so wherever it's shown.
-  try{
-    const CANDLE_BUCKET_MS = 60 * 60 * 1000; // 1 hour
-    const buckets = {};
-    for(const tick of history){
-      const bucketKey = Math.floor(tick.t / CANDLE_BUCKET_MS);
-      if(!buckets[bucketKey]) buckets[bucketKey] = [];
-      buckets[bucketKey].push(tick);
-    }
-    const sortedKeys = Object.keys(buckets).map(Number).sort((a,b)=>a-b);
-    const candles = sortedKeys.map(k=>{
-      const ticks = buckets[k].sort((a,b)=>a.t-b.t);
-      const prices = ticks.map(t=>t.price);
-      return {
-        t: k * CANDLE_BUCKET_MS,
-        open: ticks[0].price,
-        close: ticks[ticks.length-1].price,
-        high: Math.max(...prices),
-        low: Math.min(...prices)
-      };
-    });
+  // Build the shared hourly candle series once — used by both Section 4
+  // (engulfing/doji) and Section 5 (BB Trap) below.
+  const hourlyCandles = buildHourlyCandles(history);
 
-    if(candles.length >= 2){
-      const prev = candles[candles.length - 2];
-      const curr = candles[candles.length - 1];
+  // ---- 4. Basic candle pattern detection (engulfing / doji) ----
+  // Approximate hourly candles built from the raw 5-min ticks — not a real
+  // broker OHLC feed, the app says so wherever this is shown.
+  try{
+    if(hourlyCandles.length >= 2){
+      const prev = hourlyCandles[hourlyCandles.length - 2];
+      const curr = hourlyCandles[hourlyCandles.length - 1];
       let pattern = null;
 
-      const prevBody = Math.abs(prev.close - prev.open);
       const currBody = Math.abs(curr.close - curr.open);
       const currRange = curr.high - curr.low;
 
@@ -257,10 +260,106 @@ async function main(){
         console.log('No notable candle pattern on the latest hourly candle.');
       }
     } else {
-      console.log(`Not enough hourly candles yet for pattern detection (have ${candles.length}, need 2).`);
+      console.log(`Not enough hourly candles yet for pattern detection (have ${hourlyCandles.length}, need 2).`);
     }
   }catch(e){
     console.warn('Candle pattern detection failed (non-fatal):', e.message);
+  }
+
+  // ---- 5. BB Trap strategy detection (1H, 20-period Bollinger Bands) ----
+  // Rules (VWAP intentionally left out — no volume data available for gold
+  // from our free price source, so 20 SMA is used as the reference line
+  // throughout, same as the strategy's own target rule already does):
+  //   BEARISH: an "Alert Candle" forms fully above the upper band (its Low
+  //   is still above the band) → the first later candle whose Low breaks
+  //   below the Alert Candle's Low triggers a SHORT entry at that Low,
+  //   target = the 20 SMA value at the moment of the break.
+  //   BULLISH: mirror — Alert Candle fully below the lower band → first
+  //   later candle whose High breaks above the Alert Candle's High triggers
+  //   a LONG entry, target = 20 SMA at that moment.
+  // This is a simple, mechanical, approximate read on hourly candles built
+  // from 5-min ticks — not the real broker OHLC feed the original PDF
+  // strategy was designed against, and it does not implement the strategy's
+  // stoploss/partial-entry/consolidation rules — only the core alert →
+  // break → target signal, clearly labeled as such wherever it's shown.
+  try{
+    const BB_PERIOD = 20;
+    if(hourlyCandles.length >= BB_PERIOD + 2){
+      // Compute a 20-SMA + Bollinger Bands value for every candle from
+      // index BB_PERIOD onward, using that candle's preceding 20 closes.
+      const bands = new Array(hourlyCandles.length).fill(null);
+      for(let i = BB_PERIOD; i < hourlyCandles.length; i++){
+        const window = hourlyCandles.slice(i - BB_PERIOD, i).map(c => c.close);
+        const mean = window.reduce((a,b)=>a+b, 0) / BB_PERIOD;
+        const variance = window.reduce((a,b)=> a + Math.pow(b - mean, 2), 0) / BB_PERIOD;
+        const stdDev = Math.sqrt(variance);
+        bands[i] = { sma: mean, upper: mean + 2*stdDev, lower: mean - 2*stdDev };
+      }
+
+      // Find the most recent Alert Candle of each type (scanning backward),
+      // then check whether it has since been broken by a later candle.
+      function findLatestSignal(direction){
+        for(let i = hourlyCandles.length - 2; i >= BB_PERIOD; i--){
+          const b = bands[i];
+          if(!b) continue;
+          const c = hourlyCandles[i];
+          const isAlert = direction === 'bearish'
+            ? c.low > b.upper   // whole candle (incl. low) above upper band
+            : c.high < b.lower; // whole candle (incl. high) below lower band
+          if(!isAlert) continue;
+
+          // Found the most recent Alert Candle for this direction — now
+          // look forward for the first candle that breaks its low/high.
+          for(let j = i + 1; j < hourlyCandles.length; j++){
+            const trigC = hourlyCandles[j];
+            const brokeIt = direction === 'bearish'
+              ? trigC.low < c.low
+              : trigC.high > c.high;
+            if(brokeIt){
+              const targetBand = bands[j] || b;
+              return {
+                type: direction,
+                alertCandleTime: c.t,
+                alertHigh: c.high,
+                alertLow: c.low,
+                entryPrice: direction === 'bearish' ? c.low : c.high,
+                target: targetBand.sma,
+                triggerCandleTime: trigC.t
+              };
+            }
+          }
+          return null; // most recent alert candle found, but not broken yet
+        }
+        return null;
+      }
+
+      const bearishSignal = findLatestSignal('bearish');
+      const bullishSignal = findLatestSignal('bullish');
+      // If both somehow exist, prefer whichever triggered more recently.
+      const signal = [bearishSignal, bullishSignal]
+        .filter(Boolean)
+        .sort((a,b) => b.triggerCandleTime - a.triggerCandleTime)[0] || null;
+
+      if(signal){
+        const prevSnap = await db.ref('bbTrapSignal').once('value');
+        const prev = prevSnap.val();
+        const isNew = !prev || prev.triggerCandleTime !== signal.triggerCandleTime || prev.type !== signal.type;
+
+        await db.ref('bbTrapSignal').set({ ...signal, detectedAt: Date.now() });
+
+        if(isNew){
+          console.log('New BB Trap signal:', signal.type, 'entry', signal.entryPrice, 'target', signal.target);
+        } else {
+          console.log('BB Trap signal unchanged from last run.');
+        }
+      } else {
+        console.log('No active BB Trap signal right now (no unbroken/triggered Alert Candle found).');
+      }
+    } else {
+      console.log(`Not enough hourly candles yet for BB Trap detection (have ${hourlyCandles.length}, need ${BB_PERIOD + 2}).`);
+    }
+  }catch(e){
+    console.warn('BB Trap detection failed (non-fatal):', e.message);
   }
 }
 
