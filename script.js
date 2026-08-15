@@ -10,7 +10,7 @@
    Now Price is a real panel like the rest, so this is one simple, uniform
    piece of logic instead of two different code paths.
 ------------------------------------------ */
-const TAB_ORDER = ['price', 'analysis', 'calendar', 'tools'];
+const TAB_ORDER = ['price', 'analysis', 'bbtrap', 'calendar', 'tools'];
 const tabBtns = document.querySelectorAll('.tab-btn');
 const panels = document.querySelectorAll('.panel');
 const navItems = document.querySelectorAll('.nav-item');
