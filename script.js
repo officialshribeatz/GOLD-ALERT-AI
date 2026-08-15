@@ -204,6 +204,7 @@ async function pollPriceForAlerts(){
       lastKnownPrice = d.price;
       if(needAlertCheck) checkAlerts(d.price);
       if(needLiqCheck) checkLiquidityZones(d.price);
+      updateLiveSwingCandle(d.price);
     }
   }catch(e){ /* silent fail, try again next tick */ }
 }
@@ -1112,3 +1113,128 @@ function loadFullChartWidgetIfNeeded(){
 document.getElementById('openChartBtn')?.addEventListener('click', ()=>{
   window.location.href = 'https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD';
 });
+
+/* ---------- H4 SWING CHART (candles + swing lines, live-updating) ----------
+   Uses TradingView's free open-source "Lightweight Charts" library (not the
+   embedded widget — that one can't take custom price lines). We build H4
+   candles client-side from the same raw `priceHistory` ticks the server
+   uses, so the candles line up exactly with the server-computed swing
+   levels. The last (currently forming) H4 candle is kept live-updating off
+   the same 5-second price poll already used for alerts elsewhere in this
+   file — everything before that is fixed/closed candles from the server.
+   LIMITATION: Firebase only keeps ~7 days of raw ticks, so swings older
+   than that have no candle data left to draw a line against — they still
+   show in the list (Tools tab), just not on this chart.
+------------------------------------------ */
+let swingChart = null;
+let swingCandleSeries = null;
+let currentLiveCandle = null; // the in-progress H4 candle being live-updated
+const H4_SECONDS = 4 * 60 * 60;
+
+function buildH4CandlesFromTicks(ticks){
+  if(!Array.isArray(ticks) || ticks.length === 0) return [];
+  const buckets = {};
+  for(const tick of ticks){
+    const key = Math.floor(tick.t / (H4_SECONDS * 1000));
+    if(!buckets[key]) buckets[key] = [];
+    buckets[key].push(tick);
+  }
+  const sortedKeys = Object.keys(buckets).map(Number).sort((a,b)=>a-b);
+  return sortedKeys.map(k=>{
+    const bucketTicks = buckets[k].sort((a,b)=>a.t-b.t);
+    const prices = bucketTicks.map(t=>t.price);
+    return {
+      time: k * H4_SECONDS, // lightweight-charts wants seconds, not ms
+      open: prices[0],
+      high: Math.max(...prices),
+      low: Math.min(...prices),
+      close: prices[prices.length-1]
+    };
+  });
+}
+
+async function initSwingChart(){
+  const container = document.getElementById('swingChartContainer');
+  const note = document.getElementById('swingChartNote');
+  if(!container || typeof LightweightCharts === 'undefined') return;
+  if(typeof firebaseConfig === 'undefined' || firebaseConfig.apiKey === 'YOUR_API_KEY') return;
+
+  try{
+    const res = await fetch(firebaseConfig.databaseURL + '/priceHistory.json');
+    const ticks = await res.json();
+    const candles = buildH4CandlesFromTicks(ticks || []);
+
+    if(candles.length === 0){
+      if(note) note.textContent = 'अजून पुरेसा price data नाही — थोडा वेळ थांबा.';
+      return;
+    }
+
+    if(!swingChart){
+      swingChart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: 300,
+        layout: { background: { color: 'transparent' }, textColor: '#8A919C' },
+        grid: { vertLines: { color: '#262B31' }, horzLines: { color: '#262B31' } },
+        timeScale: { timeVisible: true, secondsVisible: false },
+        rightPriceScale: { borderColor: '#262B31' },
+      });
+      swingCandleSeries = swingChart.addCandlestickSeries({
+        upColor: '#3ECF8E', downColor: '#FF5C5C',
+        borderUpColor: '#3ECF8E', borderDownColor: '#FF5C5C',
+        wickUpColor: '#3ECF8E', wickDownColor: '#FF5C5C',
+      });
+      window.addEventListener('resize', ()=>{
+        if(swingChart) swingChart.applyOptions({ width: container.clientWidth });
+      });
+    }
+
+    swingCandleSeries.setData(candles);
+    currentLiveCandle = { ...candles[candles.length - 1] };
+
+    // Draw a horizontal line for each swing level that falls within the
+    // candles we actually have data for (older ones are skipped — see note above).
+    swingCandleSeries.priceLines?.forEach?.(pl => swingCandleSeries.removePriceLine(pl));
+    const earliestCandleTime = candles[0].time * 1000;
+    const drawnSwings = swingLevels.filter(s => s.time >= earliestCandleTime);
+    drawnSwings.forEach(s => {
+      swingCandleSeries.createPriceLine({
+        price: s.value,
+        color: s.type === 'high' ? '#3ECF8E' : '#FF5C5C',
+        lineWidth: 2,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: s.type === 'high' ? 'Swing High' : 'Swing Low'
+      });
+    });
+
+    if(note){
+      const skipped = swingLevels.length - drawnSwings.length;
+      note.textContent = skipped > 0
+        ? `${drawnSwings.length} स्विंग रेषा दाखवल्या (${skipped} जुने स्विंग्स — त्यांचा candle data आता उपलब्ध नाही, फक्त list मध्ये दिसतील).`
+        : `${drawnSwings.length} स्विंग रेषा दाखवल्या — शेवटचा candle live अपडेट होतोय.`;
+    }
+  }catch(e){
+    console.warn('Swing chart init failed (non-fatal):', e);
+    if(note) note.textContent = 'Chart लोड करता आलं नाही.';
+  }
+}
+
+function updateLiveSwingCandle(price){
+  if(!swingCandleSeries || !currentLiveCandle) return;
+  const nowBucket = Math.floor(Date.now() / (H4_SECONDS * 1000)) * H4_SECONDS;
+
+  if(nowBucket !== currentLiveCandle.time){
+    // a new H4 bucket has started — begin a fresh live candle
+    currentLiveCandle = { time: nowBucket, open: price, high: price, low: price, close: price };
+  } else {
+    currentLiveCandle.high = Math.max(currentLiveCandle.high, price);
+    currentLiveCandle.low = Math.min(currentLiveCandle.low, price);
+    currentLiveCandle.close = price;
+  }
+  swingCandleSeries.update(currentLiveCandle);
+}
+
+// Re-draw the chart (fresh candles + swing lines) every time server swings
+// refresh, so it stays in sync with the same 5-min cycle as the rest of the app.
+initSwingChart();
+setInterval(initSwingChart, 5 * 60 * 1000);
