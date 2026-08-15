@@ -419,6 +419,21 @@ function renderBBTrap(){
   renderBBTrapInto('bbTrap15mCard', lastBBTrapSignal15m);
 }
 
+// "Clear" here means clearing what's currently shown on screen — the next
+// automatic refresh (every 5 min) will pull whatever the server currently
+// considers the latest 1H/15m signal and pending Alert Candle, so this is
+// just a way to wipe a stale-looking card without waiting for that refresh.
+document.getElementById('clearBBTrapBtn')?.addEventListener('click', ()=>{
+  lastBBTrapSignal = null;
+  lastBBTrapPending = null;
+  renderBBTrap();
+});
+document.getElementById('clearBBTrap15mBtn')?.addEventListener('click', ()=>{
+  lastBBTrapSignal15m = null;
+  lastBBTrapPending15m = null;
+  renderBBTrap();
+});
+
 async function fetchServerSwings(){
   if(typeof firebaseConfig === 'undefined' || firebaseConfig.apiKey === 'YOUR_API_KEY') return;
   try{
