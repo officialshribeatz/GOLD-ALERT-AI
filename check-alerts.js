@@ -396,6 +396,23 @@ async function main(){
 
         if(isNew){
           console.log(`New ${timeframeLabel} BB Trap signal:`, signal.type, 'entry', signal.entryPrice, 'target', signal.target);
+
+          // Reuses the existing "swingEnabled" opt-in (same toggle as Swing
+          // Level alerts) rather than adding a brand-new one — the app's
+          // Tools tab already lets people turn this category of alert on/off.
+          const tokens = Object.values(devices)
+            .filter(d => d.swingEnabled && d.token)
+            .map(d => d.token);
+          if(tokens.length){
+            const dirLabel = signal.type === 'bullish' ? 'BULLISH (BUY)' : 'BEARISH (SELL)';
+            const body = `${timeframeLabel} BB Trap ${dirLabel} — Entry ${signal.entryPrice.toFixed(2)}, Target ${signal.target.toFixed(2)}`;
+            try{
+              await admin.messaging().sendEachForMulticast({
+                tokens,
+                notification: { title: `🎯 Gold Alert AI — ${timeframeLabel} BB Trap`, body }
+              });
+            }catch(e){ console.warn(`${timeframeLabel} BB Trap push failed:`, e.message); }
+          }
         } else {
           console.log(`${timeframeLabel} BB Trap signal unchanged from last run.`);
         }
